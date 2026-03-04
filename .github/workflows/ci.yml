@@ -95,7 +95,7 @@ jobs:
 
       - name: Skip GA4 live smoke (secrets missing)
         if: steps.secret-check.outputs.enabled != 'true'
-        run: echo "GA4 live smoke skipped: GA4_PROPERTY_ID / GA4_CREDENTIALS_JSON secrets are not configured."
+        run: echo "GA4 live smoke skipped — secrets are not configured."
 
       - name: Prepare GA4 Credentials
         if: steps.secret-check.outputs.enabled == 'true'
