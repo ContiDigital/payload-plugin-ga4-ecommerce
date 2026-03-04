@@ -38,5 +38,6 @@ export const createCacheCollection = (slug: string): CollectionConfig => {
         required: true,
       },
     ],
+    lockDocuments: false,
   }
 }
