@@ -52,6 +52,7 @@ jobs:
         run: pnpm test:int
 
       - name: Coverage
+        if: matrix.node-version == 20
         run: pnpm test:coverage
 
       - name: Build
