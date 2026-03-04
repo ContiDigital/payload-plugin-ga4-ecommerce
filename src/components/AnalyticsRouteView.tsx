@@ -1,4 +1,5 @@
 import type { AdminViewServerProps } from 'payload'
+import type React from 'react'
 
 import { DefaultTemplate } from '@payloadcms/next/templates'
 import { Gutter } from '@payloadcms/ui'
@@ -11,7 +12,7 @@ type AnalyticsRouteViewProps = {
   title?: string
 } & AdminViewServerProps
 
-export const AnalyticsRouteView = ({
+export const AnalyticsRouteView: React.FC<AnalyticsRouteViewProps> = ({
   apiRoute = '/api',
   endpointBasePath = '/analytics/ga4',
   initPageResult,
