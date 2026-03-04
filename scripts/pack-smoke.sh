@@ -24,4 +24,4 @@ trap cleanup EXIT
 cd "$tmp_dir"
 npm init -y >/dev/null
 npm install "$pack_file" >/dev/null
-node --input-type=module -e "import plugin from 'payload-ga4-analytics-plugin'; if (typeof plugin !== 'function') { throw new Error('default export is not a function') }"
+node --input-type=module -e "import plugin from 'payload-plugin-ga4-ecommerce'; if (typeof plugin !== 'function') { throw new Error('default export is not a function') }"

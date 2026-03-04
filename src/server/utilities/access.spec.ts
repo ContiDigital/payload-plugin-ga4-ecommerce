@@ -28,9 +28,13 @@ const createOptions = (overrides?: Partial<NormalizedPluginOptions>): Normalized
     api: {
       basePath: '/analytics/ga4',
     },
+    autoInjectUI: true,
     cache: {
       aggregateTtlMs: 1_000,
+      collectionSlug: 'ga4-cache-entries',
       enabled: true,
+      maxEntries: 100,
+      strategy: 'payloadCollection',
       timeseriesTtlMs: 1_000,
     },
     collections: [],
@@ -39,7 +43,11 @@ const createOptions = (overrides?: Partial<NormalizedPluginOptions>): Normalized
       reportLimit: 10,
       trackedEventNames: [],
     },
-    getCredentials: () => Promise.resolve('dev/.google-credentials.json'),
+    getCredentials: () =>
+      Promise.resolve({
+        type: 'keyFilename' as const,
+        path: 'dev/.google-credentials.json',
+      }),
     propertyId: '123456',
     rateLimit: {
       baseRetryDelayMs: 100,
@@ -47,8 +55,11 @@ const createOptions = (overrides?: Partial<NormalizedPluginOptions>): Normalized
       includePropertyQuota: true,
       jitterFactor: 0.2,
       maxConcurrency: 2,
+      maxQueueSize: 100,
+      maxRequestsPerMinute: 120,
       maxRetries: 2,
       maxRetryDelayMs: 2_000,
+      requestTimeoutMs: 10_000,
     },
     source: {
       dimension: 'sessionSource',
@@ -62,10 +73,22 @@ describe('assertAccess', () => {
     await expect(assertAccess(createRequest(), createOptions())).rejects.toBeInstanceOf(AccessDeniedError)
   })
 
-  test('allows authenticated requests by default when no custom access function is provided', async () => {
+  test('allows admin users by default when no custom access function is provided', async () => {
     await expect(
-      assertAccess(createRequest({ id: '1' } as PayloadRequest['user']), createOptions()),
+      assertAccess(
+        createRequest({ id: '1', collection: 'users', role: 'admin' } as unknown as PayloadRequest['user']),
+        createOptions(),
+      ),
     ).resolves.toBeUndefined()
+  })
+
+  test('denies non-admin users by default when no custom access function is provided', async () => {
+    await expect(
+      assertAccess(
+        createRequest({ id: '1', collection: 'users', role: 'editor' } as unknown as PayloadRequest['user']),
+        createOptions(),
+      ),
+    ).rejects.toBeInstanceOf(AccessDeniedError)
   })
 
   test('honors a custom access function when provided', async () => {

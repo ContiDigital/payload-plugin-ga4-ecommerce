@@ -7,6 +7,7 @@ import { PLUGIN_MODULE_ID } from '../constants.js'
 type AdminComponents = NonNullable<NonNullable<Config['admin']>['components']>
 type AdminView = NonNullable<AdminComponents['views']>[string]
 type CustomComponentArray = NonNullable<AdminComponents['beforeDashboard']>
+type DashboardComponent = NonNullable<AdminComponents['beforeDashboard']>[number]
 type NavComponent = NonNullable<AdminComponents['beforeNavLinks']>[number]
 
 const withUniqueComponent = (
@@ -34,12 +35,24 @@ const withUniqueComponent = (
   return next
 }
 
-const withUniqueStringComponent = (
+const withUniqueDashboardComponent = (
   components: CustomComponentArray | undefined,
-  component: string,
+  component: DashboardComponent,
 ): CustomComponentArray => {
   const next = [...(components ?? [])]
-  const exists = next.some((candidate) => candidate === component)
+
+  const exists = next.some((candidate) => {
+    if (candidate === false || component === false) {
+      return false
+    }
+
+    if (typeof candidate === 'string' || typeof component === 'string') {
+      return candidate === component
+    }
+
+    return candidate.path === component.path && candidate.exportName === component.exportName
+  })
+
   if (!exists) {
     next.push(component)
   }
@@ -47,7 +60,16 @@ const withUniqueStringComponent = (
   return next
 }
 
-const toAdminHref = (routePath: string): string => `/admin${routePath}`
+const normalizeRoutePrefix = (value: string): string => {
+  if (value === '/') {
+    return ''
+  }
+
+  return value.endsWith('/') ? value.slice(0, -1) : value
+}
+
+const toAdminHref = (adminBasePath: string, routePath: string): string =>
+  `${normalizeRoutePrefix(adminBasePath)}${routePath}`
 
 export const applyAdminEnhancements = (
   config: Config,
@@ -56,6 +78,9 @@ export const applyAdminEnhancements = (
   if (options.admin.mode === 'headless') {
     return config
   }
+
+  const adminBasePath = config.routes?.admin ?? '/admin'
+  const apiBasePath = config.routes?.api ?? '/api'
 
   const nextConfig: Config = {
     ...config,
@@ -70,7 +95,7 @@ export const applyAdminEnhancements = (
   if (options.admin.mode === 'route' || options.admin.mode === 'both') {
     const navLinkComponent = {
       clientProps: {
-        href: toAdminHref(options.admin.route),
+        href: toAdminHref(adminBasePath, options.admin.route),
         label: options.admin.navLabel,
       },
       exportName: 'AnalyticsNavLink',
@@ -87,6 +112,7 @@ export const applyAdminEnhancements = (
         exportName: 'AnalyticsRouteView',
         path: `${PLUGIN_MODULE_ID}/rsc`,
         serverProps: {
+          apiRoute: apiBasePath,
           endpointBasePath: options.api.basePath,
           title: options.admin.navLabel,
         },
@@ -103,9 +129,15 @@ export const applyAdminEnhancements = (
   }
 
   if (options.admin.mode === 'dashboard' || options.admin.mode === 'both') {
-    const dashboardComponent = `${PLUGIN_MODULE_ID}/client#DashboardAnalyticsPanel`
+    const dashboardComponent = {
+      clientProps: {
+        endpointBasePath: `${normalizeRoutePrefix(apiBasePath)}${options.api.basePath}`,
+      },
+      exportName: 'DashboardAnalyticsPanel',
+      path: `${PLUGIN_MODULE_ID}/client`,
+    } as DashboardComponent
 
-    nextConfig.admin!.components!.beforeDashboard = withUniqueStringComponent(
+    nextConfig.admin!.components!.beforeDashboard = withUniqueDashboardComponent(
       nextConfig.admin!.components!.beforeDashboard,
       dashboardComponent,
     )

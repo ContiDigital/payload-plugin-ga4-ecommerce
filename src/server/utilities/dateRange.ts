@@ -7,9 +7,28 @@ const toISODate = (input: Date): string => input.toISOString().slice(0, 10)
 const subtractDays = (date: Date, days: number): Date => new Date(date.getTime() - days * DAY_MS)
 
 const subtractMonths = (date: Date, months: number): Date => {
-  const next = new Date(date)
-  next.setMonth(next.getMonth() - months)
-  return next
+  const year = date.getUTCFullYear()
+  const month = date.getUTCMonth()
+  const day = date.getUTCDate()
+
+  const targetMonthIndex = year * 12 + month - months
+  const targetYear = Math.floor(targetMonthIndex / 12)
+  const targetMonth = ((targetMonthIndex % 12) + 12) % 12
+
+  const targetMonthLastDay = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate()
+  const clampedDay = Math.min(day, targetMonthLastDay)
+
+  return new Date(
+    Date.UTC(
+      targetYear,
+      targetMonth,
+      clampedDay,
+      date.getUTCHours(),
+      date.getUTCMinutes(),
+      date.getUTCSeconds(),
+      date.getUTCMilliseconds(),
+    ),
+  )
 }
 
 const parseISODate = (value: string): Date => {

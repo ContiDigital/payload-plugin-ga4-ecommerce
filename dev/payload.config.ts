@@ -3,7 +3,7 @@ import { lexicalEditor } from '@payloadcms/richtext-lexical'
 import fs from 'fs'
 import path from 'path'
 import { buildConfig } from 'payload'
-import { payloadGa4AnalyticsPlugin } from 'payload-ga4-analytics-plugin'
+import { payloadGa4AnalyticsPlugin } from 'payload-plugin-ga4-ecommerce'
 import sharp from 'sharp'
 import { fileURLToPath } from 'url'
 
@@ -110,6 +110,14 @@ const buildConfigWithSQLite = async () => {
             'submit_order',
           ],
         },
+        cache: {
+          aggregateTtlMs: 60_000,
+          collectionSlug: 'ga4-cache-entries',
+          enabled: true,
+          maxEntries: 500,
+          strategy: 'payloadCollection',
+          timeseriesTtlMs: 60_000,
+        },
         collections: [
           {
             getPathname: (doc) => `/products/${doc.slug}`,
@@ -139,6 +147,18 @@ const buildConfigWithSQLite = async () => {
           }
         },
         propertyId: process.env.GA4_PROPERTY_ID ?? '123456789',
+        rateLimit: {
+          baseRetryDelayMs: 250,
+          enabled: true,
+          includePropertyQuota: true,
+          jitterFactor: 0.2,
+          maxConcurrency: 2,
+          maxQueueSize: 50,
+          maxRequestsPerMinute: 60,
+          maxRetries: 2,
+          maxRetryDelayMs: 4_000,
+          requestTimeoutMs: 10_000,
+        },
         source: {
           dimension: 'sessionSource',
         },

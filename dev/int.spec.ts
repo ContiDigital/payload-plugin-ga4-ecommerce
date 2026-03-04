@@ -40,7 +40,7 @@ beforeAll(async () => {
   payload = await getPayload({ config })
 })
 
-describe('payload-ga4-analytics-plugin integration', () => {
+describe('payload-plugin-ga4-ecommerce integration', () => {
   test('registers analytics endpoints', () => {
     expect(payload.config.endpoints).toEqual(
       expect.arrayContaining([
@@ -100,7 +100,6 @@ describe('payload-ga4-analytics-plugin integration', () => {
 
     expect(body).toMatchObject({
       adminMode: 'route',
-      routePath: '/analytics',
       source: {
         dimension: 'sessionSource',
       },

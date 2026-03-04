@@ -1,8 +1,17 @@
 {
-  "name": "payload-ga4-analytics-plugin",
+  "name": "payload-plugin-ga4-ecommerce",
   "version": "1.0.0",
   "description": "GA4 analytics plugin for Payload CMS with admin dashboards, record analytics, caching, and retry/rate-limit controls.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ContiDigital/payload-plugin-ga4-ecommerce.git"
+  },
+  "homepage": "https://github.com/ContiDigital/payload-plugin-ga4-ecommerce#readme",
+  "bugs": {
+    "url": "https://github.com/ContiDigital/payload-plugin-ga4-ecommerce/issues"
+  },
+  "sideEffects": false,
   "type": "module",
   "exports": {
     ".": {
@@ -41,16 +50,15 @@
     "lint": "eslint src --max-warnings=0",
     "lint:fix": "eslint src --fix",
     "pack:smoke": "bash ./scripts/pack-smoke.sh",
-    "prepare": "pnpm build",
+    "prepack": "pnpm build",
     "release:check": "pnpm lint && pnpm test:int && pnpm build && pnpm pack:smoke",
     "test": "pnpm test:int",
+    "test:coverage": "vitest --run --coverage",
     "test:e2e": "playwright test",
-    "test:int": "vitest"
+    "test:int": "vitest --run"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
-    "@payloadcms/db-mongodb": "3.37.0",
-    "@payloadcms/db-postgres": "3.37.0",
     "@payloadcms/db-sqlite": "3.37.0",
     "@payloadcms/eslint-config": "3.9.0",
     "@payloadcms/next": "3.37.0",
@@ -62,12 +70,12 @@
     "@types/node": "22.19.9",
     "@types/react": "19.2.9",
     "@types/react-dom": "19.2.3",
+    "@vitest/coverage-v8": "4.0.18",
     "copyfiles": "2.4.1",
     "cross-env": "^7.0.3",
     "eslint": "^9.23.0",
     "eslint-config-next": "15.4.11",
     "graphql": "^16.8.1",
-    "mongodb-memory-server": "10.1.4",
     "next": "15.4.11",
     "open": "^10.1.0",
     "payload": "3.37.0",
@@ -75,7 +83,9 @@
     "qs-esm": "7.0.2",
     "react": "19.2.1",
     "react-dom": "19.2.1",
-    "rimraf": "3.0.2",
+    "redis": "^4.7.1",
+    "recharts": "^3.7.0",
+    "rimraf": "^6.0.1",
     "sharp": "0.34.2",
     "sort-package-json": "^2.10.0",
     "typescript": "5.7.3",
@@ -83,32 +93,24 @@
     "vitest": "4.0.18"
   },
   "peerDependencies": {
-    "payload": "^3.37.0"
+    "payload": "^3.37.0",
+    "redis": "^4.7.1",
+    "recharts": "^3.7.0"
+  },
+  "peerDependenciesMeta": {
+    "redis": {
+      "optional": true
+    },
+    "recharts": {
+      "optional": true
+    }
   },
   "engines": {
     "node": "^18.20.2 || >=20.9.0",
     "pnpm": "^9 || ^10"
   },
   "publishConfig": {
-    "exports": {
-      ".": {
-        "import": "./dist/index.js",
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      },
-      "./client": {
-        "import": "./dist/exports/client.js",
-        "types": "./dist/exports/client.d.ts",
-        "default": "./dist/exports/client.js"
-      },
-      "./rsc": {
-        "import": "./dist/exports/rsc.js",
-        "types": "./dist/exports/rsc.d.ts",
-        "default": "./dist/exports/rsc.js"
-      }
-    },
-    "main": "./dist/index.js",
-    "types": "./dist/index.d.ts"
+    "access": "public"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -117,12 +119,7 @@
       "unrs-resolver"
     ]
   },
-  "registry": "https://registry.npmjs.org/",
   "dependencies": {
-    "@google-analytics/data": "^5.2.0",
-    "recharts": "^3.7.0"
-  },
-  "optionalDependencies": {
-    "@swc/core-linux-x64-gnu": "^1.15.18"
+    "@google-analytics/data": "^5.2.0"
   }
 }

@@ -19,6 +19,14 @@ describe('dateRange utilities', () => {
     expect(range.endDate).toBe('2026-03-20')
   })
 
+  it('clamps end-of-month values when subtracting months', () => {
+    const now = new Date('2026-03-31T12:00:00.000Z')
+    const range = resolveDateRange('6mo', now)
+
+    expect(range.startDate).toBe('2025-09-30')
+    expect(range.endDate).toBe('2026-03-31')
+  })
+
   it('formats GA4 compact date dimensions', () => {
     expect(parseGA4DateDimension('20260304')).toBe('2026-03-04')
     expect(parseGA4DateDimension('2026-03-04')).toBe('2026-03-04')

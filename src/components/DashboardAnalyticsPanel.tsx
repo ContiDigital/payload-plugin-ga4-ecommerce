@@ -4,6 +4,12 @@ import React from 'react'
 
 import { AnalyticsOverviewClient } from './AnalyticsOverviewClient.js'
 
-export const DashboardAnalyticsPanel: React.FC = () => {
-  return <AnalyticsOverviewClient endpointBasePath='/api/analytics/ga4' title='Analytics Snapshot' />
+type DashboardAnalyticsPanelProps = {
+  endpointBasePath?: string
+}
+
+export const DashboardAnalyticsPanel: React.FC<DashboardAnalyticsPanelProps> = ({
+  endpointBasePath = '/api/analytics/ga4',
+}) => {
+  return <AnalyticsOverviewClient endpointBasePath={endpointBasePath} title='Analytics Snapshot' />
 }

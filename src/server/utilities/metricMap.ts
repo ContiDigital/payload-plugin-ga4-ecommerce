@@ -1,4 +1,4 @@
-import type { MetricKey, PropertyKey, SourceDimensionKey } from '../../types/index.js'
+import type { MetricKey, ReportPropertyKey, SourceDimensionKey } from '../../types/index.js'
 
 import { DEFAULT_SOURCE_DIMENSION } from '../../constants.js'
 
@@ -11,7 +11,7 @@ export const METRIC_NAME_MAP: Record<MetricKey, string> = {
   visitors: 'activeUsers',
 }
 
-const PROPERTY_NAME_BASE_MAP: Record<Exclude<PropertyKey, 'source'>, string> = {
+const PROPERTY_NAME_BASE_MAP: Record<Exclude<ReportPropertyKey, 'source'>, string> = {
   country: 'country',
   device: 'deviceCategory',
   event: 'eventName',
@@ -19,7 +19,7 @@ const PROPERTY_NAME_BASE_MAP: Record<Exclude<PropertyKey, 'source'>, string> = {
 }
 
 export const resolvePropertyName = (
-  property: PropertyKey,
+  property: ReportPropertyKey,
   sourceDimension: SourceDimensionKey = DEFAULT_SOURCE_DIMENSION,
 ): string => {
   if (property === 'source') {
@@ -29,7 +29,7 @@ export const resolvePropertyName = (
   return PROPERTY_NAME_BASE_MAP[property]
 }
 
-export const DEFAULT_GLOBAL_AGGREGATE_METRICS: MetricKey[] = [
+export const DEFAULT_GLOBAL_AGGREGATE_METRICS: readonly MetricKey[] = [
   'views',
   'visitors',
   'sessions',
@@ -37,15 +37,19 @@ export const DEFAULT_GLOBAL_AGGREGATE_METRICS: MetricKey[] = [
   'bounceRate',
 ]
 
-export const DEFAULT_GLOBAL_TIMESERIES_METRICS: MetricKey[] = ['views', 'visitors']
+export const DEFAULT_GLOBAL_TIMESERIES_METRICS: readonly MetricKey[] = ['views', 'visitors']
 
-export const DEFAULT_PAGE_AGGREGATE_METRICS: MetricKey[] = ['views', 'visitors', 'sessionDuration']
+export const DEFAULT_PAGE_AGGREGATE_METRICS: readonly MetricKey[] = [
+  'views',
+  'visitors',
+  'sessionDuration',
+]
 
-export const DEFAULT_PAGE_TIMESERIES_METRICS: MetricKey[] = ['views', 'visitors']
+export const DEFAULT_PAGE_TIMESERIES_METRICS: readonly MetricKey[] = ['views', 'visitors']
 
-export const DEFAULT_REPORT_METRICS: MetricKey[] = ['views']
+export const DEFAULT_REPORT_METRICS: readonly MetricKey[] = ['views']
 
-const DEFAULT_REPORT_METRICS_BY_PROPERTY: Record<PropertyKey, MetricKey[]> = {
+const DEFAULT_REPORT_METRICS_BY_PROPERTY: Record<ReportPropertyKey, readonly MetricKey[]> = {
   country: ['visitors', 'sessions'],
   device: ['visitors', 'sessions'],
   event: ['eventCount', 'visitors'],
@@ -53,6 +57,6 @@ const DEFAULT_REPORT_METRICS_BY_PROPERTY: Record<PropertyKey, MetricKey[]> = {
   source: ['sessions', 'visitors'],
 }
 
-export const getDefaultReportMetrics = (property: PropertyKey): MetricKey[] => {
-  return DEFAULT_REPORT_METRICS_BY_PROPERTY[property]
+export const getDefaultReportMetrics = (property: ReportPropertyKey): MetricKey[] => {
+  return [...DEFAULT_REPORT_METRICS_BY_PROPERTY[property]]
 }

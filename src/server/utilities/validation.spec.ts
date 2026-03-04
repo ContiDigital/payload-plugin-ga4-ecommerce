@@ -4,6 +4,8 @@ import {
   parseGlobalAggregateInput,
   parsePageAggregateInput,
   parseReportInput,
+  parseRequestBody,
+  UnsupportedMediaTypeError,
   ValidationError,
 } from './validation.js'
 
@@ -76,5 +78,36 @@ describe('analytics input validation', () => {
         property: 'event',
       }),
     ).toThrow('eventNames must be an array of strings')
+  })
+
+  it('rejects pagePath values that do not begin with "/"', () => {
+    expect(() =>
+      parseReportInput({
+        pagePath: 'products/item',
+        property: 'page',
+      }),
+    ).toThrow('pagePath must start with "/"')
+  })
+
+  it('rejects non-json content types when parsing request body', async () => {
+    await expect(
+      parseRequestBody({
+        headers: new Headers({
+          'content-type': 'text/plain',
+        }),
+        json: () => Promise.resolve({ foo: 'bar' }),
+      }),
+    ).rejects.toBeInstanceOf(UnsupportedMediaTypeError)
+  })
+
+  it('rejects array JSON request bodies', async () => {
+    await expect(
+      parseRequestBody({
+        headers: new Headers({
+          'content-type': 'application/json',
+        }),
+        json: () => Promise.resolve(['not', 'an', 'object']),
+      }),
+    ).rejects.toThrow('JSON body must be an object')
   })
 })

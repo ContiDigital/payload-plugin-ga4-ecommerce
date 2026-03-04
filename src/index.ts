@@ -23,6 +23,26 @@ export const payloadGa4AnalyticsPlugin =
     return configWithAdmin
   }
 
+export {
+  AnalyticsUIPlaceholder,
+  getAnalyticsField,
+  getAnalyticsTab,
+} from './plugin/applyCollectionEnhancements.js'
+export { createAnalyticsService } from './server/services/analyticsService.js'
+export type { AnalyticsService } from './server/services/analyticsService.js'
 export type { PayloadGA4AnalyticsPluginOptions } from './types/index.js'
+export type {
+  AggregateResult,
+  AnalyticsUIPlacementConfig,
+  CollectionAnalyticsConfig,
+  HealthResult,
+  LiveResult,
+  MetricKey,
+  NormalizedPluginOptions,
+  ReportPropertyKey,
+  ReportResult,
+  Timeframe,
+  TimeseriesResult,
+} from './types/index.js'
 
 export default payloadGa4AnalyticsPlugin

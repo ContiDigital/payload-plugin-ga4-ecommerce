@@ -18,6 +18,8 @@ import type {
   TimeseriesPoint,
   TimeseriesResult,
 } from '../../types/index.js'
+import type { CacheService } from './sub-services/cacheService.js'
+import type { GA4Reporter } from './sub-services/ga4ReporterService.js'
 
 import { parseGA4DateDimension, resolveDateRange, shiftDateRangeBack } from '../utilities/dateRange.js'
 import {
@@ -29,12 +31,13 @@ import {
   METRIC_NAME_MAP,
   resolvePropertyName,
 } from '../utilities/metricMap.js'
-import { InMemoryCacheService } from './sub-services/cacheService.js'
 import { GA4ReporterService } from './sub-services/ga4ReporterService.js'
+import { PayloadCollectionCacheService } from './sub-services/payloadCollectionCacheService.js'
 import { RateLimiterService } from './sub-services/rateLimiterService.js'
+import { RedisCacheService } from './sub-services/redisCacheService.js'
 import { RetryService } from './sub-services/retryService.js'
 
-const parseMetricNumber = (value: null | string | undefined): number => {
+export const parseMetricNumber = (value: null | string | undefined): number => {
   if (!value) {
     return 0
   }
@@ -43,11 +46,11 @@ const parseMetricNumber = (value: null | string | undefined): number => {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-const dedupeMetrics = (metrics: MetricKey[]): MetricKey[] => {
+export const dedupeMetrics = (metrics: readonly MetricKey[]): MetricKey[] => {
   return [...new Set(metrics)]
 }
 
-const toMetricValueMap = (
+export const toMetricValueMap = (
   metrics: MetricKey[],
   metricValues: Array<{ value?: null | string }> | null | undefined,
 ): Partial<Record<MetricKey, number>> => {
@@ -60,7 +63,7 @@ const toMetricValueMap = (
   return result
 }
 
-const toMetricDeltaMap = (args: {
+export const toMetricDeltaMap = (args: {
   currentMetrics: Partial<Record<MetricKey, number>>
   metrics: MetricKey[]
   previousMetrics: Partial<Record<MetricKey, number>>
@@ -90,22 +93,22 @@ const toMetricDeltaMap = (args: {
   return result
 }
 
-const buildCacheKey = (...parts: Array<null | number | string | undefined>): string => {
+export const buildCacheKey = (...parts: Array<null | number | string | undefined>): string => {
   return parts
     .filter((part): part is number | string => part !== undefined && part !== null)
     .map((part) => String(part))
     .join('|')
 }
 
-const parseMetrics = (
+export const parseMetrics = (
   requestedMetrics: MetricKey[] | undefined,
-  fallbackMetrics: MetricKey[],
+  fallbackMetrics: readonly MetricKey[],
 ): MetricKey[] => {
   const base = requestedMetrics?.length ? requestedMetrics : fallbackMetrics
   return dedupeMetrics(base)
 }
 
-const formatCompatibility = (value: null | number | string | undefined): string => {
+export const formatCompatibility = (value: null | number | string | undefined): string => {
   if (typeof value === 'string' && value.length > 0) {
     return value
   }
@@ -117,7 +120,7 @@ const formatCompatibility = (value: null | number | string | undefined): string 
   return 'UNKNOWN'
 }
 
-const buildPagePathFilter = (pagePath?: string) => {
+export const buildPagePathFilter = (pagePath?: string) => {
   if (!pagePath) {
     return undefined
   }
@@ -133,7 +136,7 @@ const buildPagePathFilter = (pagePath?: string) => {
   }
 }
 
-const buildInListFilter = (fieldName: string, values: string[]) => {
+export const buildInListFilter = (fieldName: string, values: string[]) => {
   if (values.length === 0) {
     return undefined
   }
@@ -148,7 +151,7 @@ const buildInListFilter = (fieldName: string, values: string[]) => {
   }
 }
 
-const combineDimensionFilters = (
+export const combineDimensionFilters = (
   filters: Array<null | Record<string, unknown> | undefined>,
 ): Record<string, unknown> | undefined => {
   const normalized = filters.filter((filter): filter is Record<string, unknown> => Boolean(filter))
@@ -168,13 +171,13 @@ const combineDimensionFilters = (
   }
 }
 
-const toClientValidationError = (message: string) => {
+export const toClientValidationError = (message: string) => {
   const error = new Error(message) as { status: number } & Error
   error.status = 400
   return error
 }
 
-const extractErrorDetails = (error: unknown): string => {
+export const extractErrorDetails = (error: unknown): string => {
   if (typeof error === 'object' && error !== null && 'details' in error && typeof error.details === 'string') {
     return error.details
   }
@@ -186,7 +189,7 @@ const extractErrorDetails = (error: unknown): string => {
   return String(error)
 }
 
-const isGa4InvalidArgumentError = (error: unknown): boolean => {
+export const isGa4InvalidArgumentError = (error: unknown): boolean => {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 3
 }
 
@@ -195,6 +198,7 @@ export type AnalyticsService = {
     input: CompatibilityInput
     req: PayloadRequest
   }) => Promise<CompatibilityResult>
+  destroy: () => Promise<void>
   getGlobalAggregate: (args: { input: GlobalAggregateInput; req: PayloadRequest }) => Promise<AggregateResult>
   getGlobalTimeseries: (args: {
     input: GlobalTimeseriesInput
@@ -211,32 +215,160 @@ export type AnalyticsService = {
   getReport: (args: { input: ReportInput; req: PayloadRequest }) => Promise<ReportResult>
 }
 
-export const createAnalyticsService = (options: NormalizedPluginOptions): AnalyticsService => {
-  const cacheService = new InMemoryCacheService(options.cache.maxEntries)
-  const reporterService = new GA4ReporterService(options)
+type AnalyticsServiceDependencies = {
+  cacheService?: CacheService
+  limiterService?: Pick<RateLimiterService, 'destroy' | 'run'>
+  reporterService?: {
+    destroy?: () => Promise<void>
+    getReporter: (req: PayloadRequest) => Promise<GA4Reporter>
+  }
+  retryService?: Pick<RetryService, 'execute'>
+}
 
-  const retryService = new RetryService({
-    baseDelayMs: options.rateLimit.baseRetryDelayMs,
-    jitterFactor: options.rateLimit.jitterFactor,
-    maxDelayMs: options.rateLimit.maxRetryDelayMs,
-    maxRetries: options.rateLimit.maxRetries,
-  })
+export const createAnalyticsService = (
+  options: NormalizedPluginOptions,
+  dependencies: AnalyticsServiceDependencies = {},
+): AnalyticsService => {
+  const cacheService: CacheService =
+    dependencies.cacheService ??
+    (options.cache.strategy === 'redis'
+      ? new RedisCacheService({
+          keyPrefix: options.cache.redis!.keyPrefix!,
+          maxEntries: options.cache.maxEntries,
+          url: options.cache.redis!.url,
+        })
+      : new PayloadCollectionCacheService({
+          collectionSlug: options.cache.collectionSlug,
+          maxEntries: options.cache.maxEntries,
+        }))
 
-  const limiterService = new RateLimiterService(options.rateLimit.maxConcurrency)
+  const reporterService = dependencies.reporterService ?? new GA4ReporterService(options)
 
-  const runWithPolicy = async <T>(operation: () => Promise<T>): Promise<T> => {
-    if (!options.rateLimit.enabled) {
-      return operation()
+  const retryService =
+    dependencies.retryService ??
+    new RetryService({
+      baseDelayMs: options.rateLimit.baseRetryDelayMs,
+      jitterFactor: options.rateLimit.jitterFactor,
+      maxDelayMs: options.rateLimit.maxRetryDelayMs,
+      maxRetries: options.rateLimit.maxRetries,
+    })
+
+  const limiterService =
+    dependencies.limiterService ??
+    new RateLimiterService(options.rateLimit.maxConcurrency, options.rateLimit.maxQueueSize)
+  const inflightByCacheKey = new Map<string, Promise<unknown>>()
+
+  const runWithPolicy = async <T>(args: {
+    operation: () => Promise<T>
+    operationName: string
+    req: PayloadRequest
+  }): Promise<T> => {
+    const runOperation = async (): Promise<T> => {
+      return retryService.execute(args.operation, {
+        onRetry: ({ attempt, delayMs, error, maxRetries }) => {
+          args.req.payload.logger.warn(
+            {
+              attempt,
+              delayMs,
+              error,
+              maxRetries,
+              operation: args.operationName,
+            },
+            '[payload-ga4-analytics] retrying GA4 request',
+          )
+        },
+      })
     }
 
-    return limiterService.run(async () => retryService.execute(operation))
+    try {
+      if (!options.rateLimit.enabled) {
+        return await runOperation()
+      }
+
+      return await limiterService.run(runOperation)
+    } catch (error) {
+      args.req.payload.logger.error(
+        {
+          error,
+          operation: args.operationName,
+        },
+        '[payload-ga4-analytics] analytics service operation failed',
+      )
+      throw error
+    }
+  }
+
+  const getFromCache = async <T>({
+    cacheEnabled,
+    cacheKey,
+    req,
+  }: {
+    cacheEnabled: boolean
+    cacheKey: string
+    req: PayloadRequest
+  }): Promise<T | undefined> => {
+    if (!cacheEnabled) {
+      return undefined
+    }
+
+    return cacheService.get<T>({
+      key: cacheKey,
+      req,
+    })
+  }
+
+  const setInCache = async <T>({
+    cacheEnabled,
+    cacheKey,
+    req,
+    ttlMs,
+    value,
+  }: {
+    cacheEnabled: boolean
+    cacheKey: string
+    req: PayloadRequest
+    ttlMs: number
+    value: T
+  }): Promise<void> => {
+    if (!cacheEnabled) {
+      return
+    }
+
+    await cacheService.set({
+      key: cacheKey,
+      req,
+      ttlMs,
+      value,
+    })
+  }
+
+  const coalesceByCacheKey = async <T>(args: {
+    cacheEnabled: boolean
+    cacheKey: string
+    operation: () => Promise<T>
+  }): Promise<T> => {
+    if (!args.cacheEnabled) {
+      return args.operation()
+    }
+
+    const inflight = inflightByCacheKey.get(args.cacheKey)
+    if (inflight) {
+      return inflight as Promise<T>
+    }
+
+    const nextPromise = args.operation().finally(() => {
+      inflightByCacheKey.delete(args.cacheKey)
+    })
+
+    inflightByCacheKey.set(args.cacheKey, nextPromise)
+    return nextPromise
   }
 
   const runAggregate = async (args: {
     cacheEnabled: boolean
     cacheKey: string
     comparePrevious: boolean
-    fallbackMetrics: MetricKey[]
+    fallbackMetrics: readonly MetricKey[]
     inputMetrics: MetricKey[] | undefined
     pagePath?: string
     req: PayloadRequest
@@ -245,78 +377,104 @@ export const createAnalyticsService = (options: NormalizedPluginOptions): Analyt
     const timeframe = args.timeframe ?? '30d'
     const metrics = parseMetrics(args.inputMetrics, args.fallbackMetrics)
 
-    if (args.cacheEnabled) {
-      const cached = cacheService.get<AggregateResult>(args.cacheKey)
-      if (cached) {
-        return cached
-      }
+    const cached = await getFromCache<AggregateResult>({
+      cacheEnabled: args.cacheEnabled,
+      cacheKey: args.cacheKey,
+      req: args.req,
+    })
+    if (cached) {
+      return cached
     }
 
-    const range = resolveDateRange(timeframe)
-    const reporter = await reporterService.getReporter(args.req)
-
-    const response = await runWithPolicy(() =>
-      reporter.runReport({
-        dateRanges: [range],
-        dimensionFilter: buildPagePathFilter(args.pagePath),
-        metrics: metrics.map((metric) => ({
+    return coalesceByCacheKey({
+      cacheEnabled: args.cacheEnabled,
+      cacheKey: args.cacheKey,
+      operation: async () => {
+        const range = resolveDateRange(timeframe)
+        const reporter = await reporterService.getReporter(args.req)
+        const metricDefs = metrics.map((metric) => ({
           name: METRIC_NAME_MAP[metric],
-        })),
-        returnPropertyQuota: options.rateLimit.includePropertyQuota,
-      }),
-    )
+        }))
+        const pagePathFilter = buildPagePathFilter(args.pagePath)
 
-    const row = response.rows?.[0]
-    const currentMetrics = toMetricValueMap(metrics, row?.metricValues)
+        const currentPromise = runWithPolicy({
+          operation: () =>
+            reporter.runReport({
+              dateRanges: [range],
+              dimensionFilter: pagePathFilter,
+              metrics: metricDefs,
+              returnPropertyQuota: options.rateLimit.includePropertyQuota,
+            }),
+          operationName: 'aggregate.current',
+          req: args.req,
+        })
 
-    let comparison: AggregateResult['comparison'] = undefined
+        let currentResponse: Awaited<typeof currentPromise>
+        let previousResponse: Awaited<typeof currentPromise> | undefined
+        let previousRange: ReturnType<typeof shiftDateRangeBack> | undefined
 
-    if (args.comparePrevious) {
-      const previousRange = shiftDateRangeBack(range)
+        if (args.comparePrevious) {
+          const previousRangeResolved = shiftDateRangeBack(range)
+          previousRange = previousRangeResolved
 
-      const previousResponse = await runWithPolicy(() =>
-        reporter.runReport({
-          dateRanges: [previousRange],
-          dimensionFilter: buildPagePathFilter(args.pagePath),
-          metrics: metrics.map((metric) => ({
-            name: METRIC_NAME_MAP[metric],
-          })),
-          returnPropertyQuota: options.rateLimit.includePropertyQuota,
-        }),
-      )
+          const previousPromise = runWithPolicy({
+            operation: () =>
+              reporter.runReport({
+                dateRanges: [previousRangeResolved],
+                dimensionFilter: pagePathFilter,
+                metrics: metricDefs,
+                returnPropertyQuota: options.rateLimit.includePropertyQuota,
+              }),
+            operationName: 'aggregate.previous',
+            req: args.req,
+          })
 
-      const previousMetrics = toMetricValueMap(metrics, previousResponse.rows?.[0]?.metricValues)
+          ;[currentResponse, previousResponse] = await Promise.all([currentPromise, previousPromise])
+        } else {
+          currentResponse = await currentPromise
+        }
 
-      comparison = {
-        deltas: toMetricDeltaMap({
-          currentMetrics,
-          metrics,
-          previousMetrics,
-        }),
-        previousMetrics,
-        previousRange,
-      }
-    }
+        const currentMetrics = toMetricValueMap(metrics, currentResponse.rows?.[0]?.metricValues)
 
-    const result: AggregateResult = {
-      comparison,
-      metrics: currentMetrics,
-      pagePath: args.pagePath,
-      range,
-      timeframe,
-    }
+        let comparison: AggregateResult['comparison'] = undefined
+        if (previousResponse && previousRange) {
+          const previousMetrics = toMetricValueMap(metrics, previousResponse.rows?.[0]?.metricValues)
+          comparison = {
+            deltas: toMetricDeltaMap({
+              currentMetrics,
+              metrics,
+              previousMetrics,
+            }),
+            previousMetrics,
+            previousRange,
+          }
+        }
 
-    if (args.cacheEnabled) {
-      cacheService.set(args.cacheKey, result, options.cache.aggregateTtlMs)
-    }
+        const result: AggregateResult = {
+          comparison,
+          metrics: currentMetrics,
+          pagePath: args.pagePath,
+          range,
+          timeframe,
+        }
 
-    return result
+        await setInCache({
+          cacheEnabled: args.cacheEnabled,
+          cacheKey: args.cacheKey,
+          req: args.req,
+          ttlMs: options.cache.aggregateTtlMs,
+          value: result,
+        })
+
+        return result
+      },
+    })
   }
 
   const runTimeseries = async (args: {
     cacheEnabled: boolean
     cacheKey: string
-    fallbackMetrics: MetricKey[]
+    fallbackMetrics: readonly MetricKey[]
     inputMetrics: MetricKey[] | undefined
     pagePath?: string
     req: PayloadRequest
@@ -325,59 +483,74 @@ export const createAnalyticsService = (options: NormalizedPluginOptions): Analyt
     const timeframe = args.timeframe ?? '30d'
     const metrics = parseMetrics(args.inputMetrics, args.fallbackMetrics)
 
-    if (args.cacheEnabled) {
-      const cached = cacheService.get<TimeseriesResult>(args.cacheKey)
-      if (cached) {
-        return cached
-      }
+    const cached = await getFromCache<TimeseriesResult>({
+      cacheEnabled: args.cacheEnabled,
+      cacheKey: args.cacheKey,
+      req: args.req,
+    })
+    if (cached) {
+      return cached
     }
 
-    const range = resolveDateRange(timeframe)
-    const reporter = await reporterService.getReporter(args.req)
+    return coalesceByCacheKey({
+      cacheEnabled: args.cacheEnabled,
+      cacheKey: args.cacheKey,
+      operation: async () => {
+        const range = resolveDateRange(timeframe)
+        const reporter = await reporterService.getReporter(args.req)
 
-    const response = await runWithPolicy(() =>
-      reporter.runReport({
-        dateRanges: [range],
-        dimensionFilter: buildPagePathFilter(args.pagePath),
-        dimensions: [{ name: 'date' }],
-        keepEmptyRows: false,
-        metrics: metrics.map((metric) => ({
-          name: METRIC_NAME_MAP[metric],
-        })),
-        orderBys: [
-          {
-            dimension: {
-              dimensionName: 'date',
-            },
-          },
-        ],
-        returnPropertyQuota: options.rateLimit.includePropertyQuota,
-      }),
-    )
+        const response = await runWithPolicy({
+          operation: () =>
+            reporter.runReport({
+              dateRanges: [range],
+              dimensionFilter: buildPagePathFilter(args.pagePath),
+              dimensions: [{ name: 'date' }],
+              keepEmptyRows: false,
+              metrics: metrics.map((metric) => ({
+                name: METRIC_NAME_MAP[metric],
+              })),
+              orderBys: [
+                {
+                  dimension: {
+                    dimensionName: 'date',
+                  },
+                },
+              ],
+              returnPropertyQuota: options.rateLimit.includePropertyQuota,
+            }),
+          operationName: 'timeseries',
+          req: args.req,
+        })
 
-    const points: TimeseriesPoint[] =
-      response.rows?.map((row) => {
-        const dateValue = row.dimensionValues?.[0]?.value ?? ''
+        const points: TimeseriesPoint[] =
+          response.rows?.map((row) => {
+            const dateValue = row.dimensionValues?.[0]?.value ?? ''
 
-        return {
-          date: parseGA4DateDimension(dateValue),
-          ...toMetricValueMap(metrics, row.metricValues),
+            return {
+              date: parseGA4DateDimension(dateValue),
+              ...toMetricValueMap(metrics, row.metricValues),
+            }
+          }) ?? []
+
+        const result: TimeseriesResult = {
+          metrics,
+          pagePath: args.pagePath,
+          points,
+          range,
+          timeframe,
         }
-      }) ?? []
 
-    const result: TimeseriesResult = {
-      metrics,
-      pagePath: args.pagePath,
-      points,
-      range,
-      timeframe,
-    }
+        await setInCache({
+          cacheEnabled: args.cacheEnabled,
+          cacheKey: args.cacheKey,
+          req: args.req,
+          ttlMs: options.cache.timeseriesTtlMs,
+          value: result,
+        })
 
-    if (args.cacheEnabled) {
-      cacheService.set(args.cacheKey, result, options.cache.timeseriesTtlMs)
-    }
-
-    return result
+        return result
+      },
+    })
   }
 
   const getGlobalAggregate: AnalyticsService['getGlobalAggregate'] = async ({ input, req }) => {
@@ -483,134 +656,167 @@ export const createAnalyticsService = (options: NormalizedPluginOptions): Analyt
       limit,
     )
 
-    if (cacheEnabled) {
-      const cached = cacheService.get<ReportResult>(cacheKey)
-      if (cached) {
-        return cached
-      }
+    const cached = await getFromCache<ReportResult>({
+      cacheEnabled,
+      cacheKey,
+      req,
+    })
+    if (cached) {
+      return cached
     }
 
-    const range = resolveDateRange(timeframe)
-    const reporter = await reporterService.getReporter(req)
+    return coalesceByCacheKey({
+      cacheEnabled,
+      cacheKey,
+      operation: async () => {
+        const range = resolveDateRange(timeframe)
+        const reporter = await reporterService.getReporter(req)
 
-    const response = await (async () => {
-      try {
-        return await runWithPolicy(() =>
-          reporter.runReport({
-            dateRanges: [range],
-            dimensionFilter: combineDimensionFilters([
-              buildPagePathFilter(input.pagePath),
-              buildInListFilter('eventName', eventNames ?? []),
-            ]),
-            dimensions: [{ name: dimensionName }],
-            limit,
-            metrics: metrics.map((metric) => ({
-              name: METRIC_NAME_MAP[metric],
-            })),
-            orderBys: [
-              {
-                desc: true,
-                metric: {
-                  metricName: METRIC_NAME_MAP[metrics[0]],
-                },
-              },
-            ],
-            returnPropertyQuota: options.rateLimit.includePropertyQuota,
-          }),
-        )
-      } catch (error) {
-        if (isGa4InvalidArgumentError(error)) {
-          throw toClientValidationError(
-            `Incompatible metric/dimension combination: ${extractErrorDetails(error)}`,
-          )
+        const response = await (async () => {
+          try {
+            return await runWithPolicy({
+              operation: () =>
+                reporter.runReport({
+                  dateRanges: [range],
+                  dimensionFilter: combineDimensionFilters([
+                    buildPagePathFilter(input.pagePath),
+                    buildInListFilter('eventName', eventNames ?? []),
+                  ]),
+                  dimensions: [{ name: dimensionName }],
+                  limit,
+                  metrics: metrics.map((metric) => ({
+                    name: METRIC_NAME_MAP[metric],
+                  })),
+                  orderBys: [
+                    {
+                      desc: true,
+                      metric: {
+                        metricName: METRIC_NAME_MAP[metrics[0]],
+                      },
+                    },
+                  ],
+                  returnPropertyQuota: options.rateLimit.includePropertyQuota,
+                }),
+              operationName: 'report',
+              req,
+            })
+          } catch (error) {
+            if (isGa4InvalidArgumentError(error)) {
+              throw toClientValidationError(
+                `Incompatible metric/dimension combination: ${extractErrorDetails(error)}`,
+              )
+            }
+
+            throw error
+          }
+        })()
+
+        const rows =
+          response.rows?.map((row) => ({
+            dimensionValue: row.dimensionValues?.[0]?.value ?? '',
+            metrics: toMetricValueMap(metrics, row.metricValues),
+          })) ?? []
+
+        const result: ReportResult = {
+          eventNames,
+          limit,
+          metrics,
+          pagePath: input.pagePath,
+          property,
+          range,
+          rows,
+          timeframe,
         }
 
-        throw error
-      }
-    })()
+        await setInCache({
+          cacheEnabled,
+          cacheKey,
+          req,
+          ttlMs: options.cache.aggregateTtlMs,
+          value: result,
+        })
 
-    const rows =
-      response.rows?.map((row) => ({
-        dimensionValue: row.dimensionValues?.[0]?.value ?? '',
-        metrics: toMetricValueMap(metrics, row.metricValues),
-      })) ?? []
-
-    const result: ReportResult = {
-      eventNames,
-      limit,
-      metrics,
-      pagePath: input.pagePath,
-      property,
-      range,
-      rows,
-      timeframe,
-    }
-
-    if (cacheEnabled) {
-      cacheService.set(cacheKey, result, options.cache.aggregateTtlMs)
-    }
-
-    return result
+        return result
+      },
+    })
   }
 
   const getMetadata: AnalyticsService['getMetadata'] = async ({ req }) => {
     const cacheEnabled = options.cache.enabled
     const cacheKey = buildCacheKey('metadata')
 
-    if (cacheEnabled) {
-      const cached = cacheService.get<MetadataResult>(cacheKey)
-      if (cached) {
-        return cached
-      }
+    const cached = await getFromCache<MetadataResult>({
+      cacheEnabled,
+      cacheKey,
+      req,
+    })
+    if (cached) {
+      return cached
     }
 
-    const reporter = await reporterService.getReporter(req)
+    return coalesceByCacheKey({
+      cacheEnabled,
+      cacheKey,
+      operation: async () => {
+        const reporter = await reporterService.getReporter(req)
 
-    const response = await runWithPolicy(() => reporter.getMetadata())
+        const response = await runWithPolicy({
+          operation: () => reporter.getMetadata(),
+          operationName: 'metadata',
+          req,
+        })
 
-    const result: MetadataResult = {
-      dimensions:
-        response.dimensions?.map((dimension) => ({
-          apiName: dimension.apiName ?? '',
-          category: dimension.category ?? undefined,
-          deprecated: dimension.deprecatedApiNames?.length
-            ? Boolean(dimension.deprecatedApiNames.length)
-            : false,
-          description: dimension.description ?? undefined,
-          uiName: dimension.uiName ?? undefined,
-        })) ?? [],
-      metrics:
-        response.metrics?.map((metric) => ({
-          apiName: metric.apiName ?? '',
-          category: metric.category ?? undefined,
-          deprecated: metric.deprecatedApiNames?.length
-            ? Boolean(metric.deprecatedApiNames.length)
-            : false,
-          description: metric.description ?? undefined,
-          uiName: metric.uiName ?? undefined,
-        })) ?? [],
-    }
+        const result: MetadataResult = {
+          dimensions:
+            response.dimensions?.map((dimension) => ({
+              apiName: dimension.apiName ?? '',
+              category: dimension.category ?? undefined,
+              deprecated: dimension.deprecatedApiNames?.length
+                ? Boolean(dimension.deprecatedApiNames.length)
+                : false,
+              description: dimension.description ?? undefined,
+              uiName: dimension.uiName ?? undefined,
+            })) ?? [],
+          metrics:
+            response.metrics?.map((metric) => ({
+              apiName: metric.apiName ?? '',
+              category: metric.category ?? undefined,
+              deprecated: metric.deprecatedApiNames?.length
+                ? Boolean(metric.deprecatedApiNames.length)
+                : false,
+              description: metric.description ?? undefined,
+              uiName: metric.uiName ?? undefined,
+            })) ?? [],
+        }
 
-    if (cacheEnabled) {
-      cacheService.set(cacheKey, result, options.cache.aggregateTtlMs)
-    }
+        await setInCache({
+          cacheEnabled,
+          cacheKey,
+          req,
+          ttlMs: options.cache.aggregateTtlMs,
+          value: result,
+        })
 
-    return result
+        return result
+      },
+    })
   }
 
   const checkCompatibility: AnalyticsService['checkCompatibility'] = async ({ input, req }) => {
     const metrics = parseMetrics(input.metrics, getDefaultReportMetrics(input.property))
-
     const reporter = await reporterService.getReporter(req)
 
-    const response = await runWithPolicy(() =>
-      reporter.checkCompatibility({
-        dimensions: [{ name: resolvePropertyName(input.property, options.source.dimension) }],
-        metrics: metrics.map((metric) => ({
-          name: METRIC_NAME_MAP[metric],
-        })),
-      }),
-    )
+    const response = await runWithPolicy({
+      operation: () =>
+        reporter.checkCompatibility({
+          dimensions: [{ name: resolvePropertyName(input.property, options.source.dimension) }],
+          metrics: metrics.map((metric) => ({
+            name: METRIC_NAME_MAP[metric],
+          })),
+        }),
+      operationName: 'compatibility',
+      req,
+    })
 
     return {
       dimensions:
@@ -630,11 +836,14 @@ export const createAnalyticsService = (options: NormalizedPluginOptions): Analyt
   const getLiveVisitors: AnalyticsService['getLiveVisitors'] = async ({ req }) => {
     const reporter = await reporterService.getReporter(req)
 
-    const response = await runWithPolicy(() =>
-      reporter.runRealtimeReport({
-        metrics: [{ name: 'activeUsers' }],
-      }),
-    )
+    const response = await runWithPolicy({
+      operation: () =>
+        reporter.runRealtimeReport({
+          metrics: [{ name: 'activeUsers' }],
+        }),
+      operationName: 'liveVisitors',
+      req,
+    })
 
     const visitors = parseMetricNumber(response.rows?.[0]?.metricValues?.[0]?.value)
 
@@ -647,25 +856,15 @@ export const createAnalyticsService = (options: NormalizedPluginOptions): Analyt
     return {
       adminMode: options.admin.mode,
       cache: {
-        aggregateTtlMs: options.cache.aggregateTtlMs,
         enabled: options.cache.enabled,
-        maxEntries: options.cache.maxEntries,
-        timeseriesTtlMs: options.cache.timeseriesTtlMs,
+        strategy: options.cache.strategy,
       },
       events: {
-        reportLimit: options.events.reportLimit,
         trackedEventNames: [...options.events.trackedEventNames],
       },
       rateLimit: {
-        baseRetryDelayMs: options.rateLimit.baseRetryDelayMs,
         enabled: options.rateLimit.enabled,
-        includePropertyQuota: options.rateLimit.includePropertyQuota,
-        jitterFactor: options.rateLimit.jitterFactor,
-        maxConcurrency: options.rateLimit.maxConcurrency,
-        maxRetries: options.rateLimit.maxRetries,
-        maxRetryDelayMs: options.rateLimit.maxRetryDelayMs,
       },
-      routePath: options.admin.route,
       source: {
         dimension: options.source.dimension,
       },
@@ -674,8 +873,29 @@ export const createAnalyticsService = (options: NormalizedPluginOptions): Analyt
     }
   }
 
+  const destroy: AnalyticsService['destroy'] = async () => {
+    inflightByCacheKey.clear()
+
+    const tasks: Array<Promise<unknown>> = []
+
+    if (typeof cacheService.destroy === 'function') {
+      tasks.push(Promise.resolve(cacheService.destroy()))
+    }
+
+    if (typeof reporterService.destroy === 'function') {
+      tasks.push(Promise.resolve(reporterService.destroy()))
+    }
+
+    if (typeof limiterService.destroy === 'function') {
+      tasks.push(Promise.resolve(limiterService.destroy()))
+    }
+
+    await Promise.allSettled(tasks)
+  }
+
   return {
     checkCompatibility,
+    destroy,
     getGlobalAggregate,
     getGlobalTimeseries,
     getHealth,

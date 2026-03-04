@@ -5,6 +5,7 @@ import type { AnalyticsService } from '../services/analyticsService.js'
 
 import { assertAccess } from '../utilities/access.js'
 import { errorResponse, jsonResponse } from '../utilities/http.js'
+import { assertInboundRateLimit } from '../utilities/inboundRateLimit.js'
 import { parseReportInput, parseRequestBody } from '../utilities/validation.js'
 
 export const createReportEndpoint = (
@@ -14,6 +15,8 @@ export const createReportEndpoint = (
   return {
     handler: async (req) => {
       try {
+        assertInboundRateLimit(req, options, 'report')
+
         await assertAccess(req, options)
 
         const requestBody = await parseRequestBody(req)

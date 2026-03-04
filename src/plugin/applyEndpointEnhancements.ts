@@ -13,11 +13,50 @@ import { createPageTimeseriesEndpoint } from '../server/endpoints/pageTimeseries
 import { createReportEndpoint } from '../server/endpoints/reportEndpoint.js'
 import { createAnalyticsService } from '../server/services/analyticsService.js'
 
+const ACTIVE_ANALYTICS_SERVICES = new Set<Awaited<ReturnType<typeof createAnalyticsService>>>()
+let shutdownHooksRegistered = false
+let shutdownPromise: null | Promise<void> = null
+
+const destroyActiveServices = async (): Promise<void> => {
+  const services = [...ACTIVE_ANALYTICS_SERVICES]
+  ACTIVE_ANALYTICS_SERVICES.clear()
+
+  await Promise.allSettled(
+    services.map(async (service) => {
+      await service.destroy()
+    }),
+  )
+}
+
+const registerShutdownHooks = (): void => {
+  if (shutdownHooksRegistered) {
+    return
+  }
+
+  if (typeof process === 'undefined' || typeof process.once !== 'function') {
+    return
+  }
+
+  shutdownHooksRegistered = true
+
+  const handleShutdown = () => {
+    if (!shutdownPromise) {
+      shutdownPromise = destroyActiveServices()
+    }
+  }
+
+  process.once('SIGINT', handleShutdown)
+  process.once('SIGTERM', handleShutdown)
+  process.once('beforeExit', handleShutdown)
+}
+
 export const applyEndpointEnhancements = (
   config: Config,
   options: NormalizedPluginOptions,
 ): Config => {
   const analyticsService = createAnalyticsService(options)
+  ACTIVE_ANALYTICS_SERVICES.add(analyticsService)
+  registerShutdownHooks()
 
   const endpoints = [
     createHealthEndpoint(options, analyticsService),

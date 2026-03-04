@@ -8,7 +8,7 @@ type AnalyticsNavLinkProps = {
 }
 
 export const AnalyticsNavLink: React.FC<AnalyticsNavLinkProps> = ({
-  href = '/admin/analytics',
+  href = '/analytics',
   label = 'Analytics',
 }) => {
   return (

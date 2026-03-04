@@ -5,6 +5,7 @@ import type { AnalyticsService } from '../services/analyticsService.js'
 
 import { assertAccess } from '../utilities/access.js'
 import { errorResponse, jsonResponse } from '../utilities/http.js'
+import { assertInboundRateLimit } from '../utilities/inboundRateLimit.js'
 import { parsePageAggregateInput, parseRequestBody } from '../utilities/validation.js'
 
 export const createPageAggregateEndpoint = (
@@ -14,6 +15,8 @@ export const createPageAggregateEndpoint = (
   return {
     handler: async (req) => {
       try {
+        assertInboundRateLimit(req, options, 'pageAggregate')
+
         await assertAccess(req, options)
 
         const requestBody = await parseRequestBody(req)

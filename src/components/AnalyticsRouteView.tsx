@@ -6,17 +6,21 @@ import { Gutter } from '@payloadcms/ui'
 import { AnalyticsOverviewClient } from './AnalyticsOverviewClient.js'
 
 type AnalyticsRouteViewProps = {
+  apiRoute?: string
   endpointBasePath?: string
   title?: string
 } & AdminViewServerProps
 
 export const AnalyticsRouteView = ({
+  apiRoute = '/api',
   endpointBasePath = '/analytics/ga4',
   initPageResult,
   params,
   searchParams,
   title = 'Analytics',
 }: AnalyticsRouteViewProps) => {
+  const normalizedApiRoute = apiRoute === '/' ? '' : apiRoute.replace(/\/$/, '')
+
   return (
     <DefaultTemplate
       i18n={initPageResult.req.i18n}
@@ -29,7 +33,10 @@ export const AnalyticsRouteView = ({
       visibleEntities={initPageResult.visibleEntities}
     >
       <Gutter>
-        <AnalyticsOverviewClient endpointBasePath={`/api${endpointBasePath}`} title={title} />
+        <AnalyticsOverviewClient
+          endpointBasePath={`${normalizedApiRoute}${endpointBasePath}`}
+          title={title}
+        />
       </Gutter>
     </DefaultTemplate>
   )

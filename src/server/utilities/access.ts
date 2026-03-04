@@ -11,12 +11,32 @@ export class AccessDeniedError extends Error {
   }
 }
 
+const hasAdminRole = (user: PayloadRequest['user']): boolean => {
+  if (!user || typeof user !== 'object') {
+    return false
+  }
+
+  if ('isAdmin' in user && user.isAdmin === true) {
+    return true
+  }
+
+  if ('role' in user && typeof user.role === 'string') {
+    return user.role.toLowerCase() === 'admin'
+  }
+
+  if ('roles' in user && Array.isArray(user.roles)) {
+    return user.roles.some((role) => typeof role === 'string' && role.toLowerCase() === 'admin')
+  }
+
+  return false
+}
+
 export const assertAccess = async (
   req: PayloadRequest,
   options: NormalizedPluginOptions,
 ): Promise<void> => {
   if (!options.access) {
-    if (req.user) {
+    if (hasAdminRole(req.user)) {
       return
     }
 

@@ -21,6 +21,12 @@ jobs:
   quality:
     name: Quality Gates
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version:
+          - 18
+          - 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,7 +40,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           cache: pnpm
-          node-version: 20
+          node-version: ${{ matrix.node-version }}
 
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
@@ -45,6 +51,9 @@ jobs:
       - name: Run Integration and Unit Tests
         run: pnpm test:int
 
+      - name: Coverage
+        run: pnpm test:coverage
+
       - name: Build
         run: pnpm build
 
@@ -53,7 +62,6 @@ jobs:
 
   ga4-live-smoke:
     name: GA4 Live Smoke
-    if: ${{ secrets.GA4_PROPERTY_ID != '' && secrets.GA4_CREDENTIALS_JSON != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -73,7 +81,24 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Check required secrets
+        id: secret-check
+        run: |
+          if [ -n "${GA4_PROPERTY_ID}" ] && [ -n "${GA4_CREDENTIALS_JSON}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GA4_CREDENTIALS_JSON: ${{ secrets.GA4_CREDENTIALS_JSON }}
+          GA4_PROPERTY_ID: ${{ secrets.GA4_PROPERTY_ID }}
+
+      - name: Skip GA4 live smoke (secrets missing)
+        if: steps.secret-check.outputs.enabled != 'true'
+        run: echo "GA4 live smoke skipped: GA4_PROPERTY_ID / GA4_CREDENTIALS_JSON secrets are not configured."
+
       - name: Prepare GA4 Credentials
+        if: steps.secret-check.outputs.enabled == 'true'
         run: |
           mkdir -p dev
           printf '%s' "${GA4_CREDENTIALS_JSON}" > dev/.google-credentials.json
@@ -81,7 +106,12 @@ jobs:
           GA4_CREDENTIALS_JSON: ${{ secrets.GA4_CREDENTIALS_JSON }}
 
       - name: Run GA4 Live Smoke
+        if: steps.secret-check.outputs.enabled == 'true'
         run: node ./scripts/ga4-live-smoke.mjs
         env:
           GA4_CREDENTIALS_PATH: ./dev/.google-credentials.json
           GA4_PROPERTY_ID: ${{ secrets.GA4_PROPERTY_ID }}
+
+      - name: Cleanup GA4 Credentials
+        if: always()
+        run: rm -f dev/.google-credentials.json

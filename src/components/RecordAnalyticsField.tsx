@@ -5,6 +5,7 @@ import { RecordAnalyticsPanelClient } from './RecordAnalyticsPanelClient.js'
 type Ga4FieldCustomConfig = {
   ga4?: {
     apiBasePath?: string
+    apiRoute?: string
     collectionConfig?: {
       getPathname?: (doc: Record<string, unknown>) => string
       pathnameField?: string
@@ -55,7 +56,7 @@ export const RecordAnalyticsField: UIFieldServerComponent = ({ data, field }) =>
   if (!ga4Config) {
     return (
       <div style={{ padding: '1rem' }}>
-        <p style={{ color: '#b91c1c', margin: 0 }}>Analytics field is missing plugin configuration.</p>
+        <p style={{ color: 'var(--theme-error-500)', margin: 0 }}>Analytics field is missing plugin configuration.</p>
       </div>
     )
   }
@@ -65,14 +66,16 @@ export const RecordAnalyticsField: UIFieldServerComponent = ({ data, field }) =>
   if (!pagePath) {
     return (
       <div style={{ padding: '1rem' }}>
-        <p style={{ color: '#6b7280', margin: 0 }}>
+        <p style={{ color: 'var(--theme-elevation-600)', margin: 0 }}>
           Save this document with a valid pathname before analytics can be shown.
         </p>
       </div>
     )
   }
 
-  const apiBasePath = `/api${ga4Config.apiBasePath ?? '/analytics/ga4'}`
+  const apiRoute = ga4Config.apiRoute ?? '/api'
+  const normalizedApiRoute = apiRoute === '/' ? '' : apiRoute.replace(/\/$/, '')
+  const apiBasePath = `${normalizedApiRoute}${ga4Config.apiBasePath ?? '/analytics/ga4'}`
 
   return <RecordAnalyticsPanelClient apiBasePath={apiBasePath} pagePath={pagePath} />
 }

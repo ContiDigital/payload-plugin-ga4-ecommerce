@@ -2,7 +2,7 @@ import {
   METRIC_KEYS,
   type MetricKey,
   PROPERTY_KEYS,
-  type PropertyKey,
+  type ReportPropertyKey,
   type Timeframe,
   TIMEFRAMES,
 } from '../../types/index.js'
@@ -20,8 +20,17 @@ export class ValidationError extends Error {
   }
 }
 
+export class UnsupportedMediaTypeError extends Error {
+  readonly status = 415
+
+  constructor(message: string) {
+    super(message)
+    this.name = 'UnsupportedMediaTypeError'
+  }
+}
+
 const isObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null
+  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 type JSONRequest = {
   headers: Headers
@@ -29,20 +38,28 @@ type JSONRequest = {
 }
 
 export const parseRequestBody = async (req: JSONRequest): Promise<Record<string, unknown>> => {
-  const contentType = req.headers.get('content-type') ?? ''
-
-  if (!contentType.includes('application/json')) {
-    return {}
-  }
-
   if (!req.json) {
     return {}
   }
 
+  const contentType = req.headers.get('content-type') ?? ''
+
+  if (!contentType.includes('application/json')) {
+    throw new UnsupportedMediaTypeError('Content-Type must be application/json')
+  }
+
   try {
     const parsed = await req.json()
-    return isObject(parsed) ? parsed : {}
+    if (!isObject(parsed)) {
+      throw new ValidationError('JSON body must be an object')
+    }
+
+    return parsed
   } catch (error) {
+    if (error instanceof UnsupportedMediaTypeError || error instanceof ValidationError) {
+      throw error
+    }
+
     throw new ValidationError(
       `Invalid JSON payload: ${error instanceof Error ? error.message : String(error)}`,
     )
@@ -90,12 +107,12 @@ const ensureBoolean = (input: unknown, field: string): boolean | undefined => {
   return input
 }
 
-const ensureProperty = (input: unknown): PropertyKey => {
-  if (typeof input !== 'string' || !propertySet.has(input as PropertyKey)) {
+const ensureProperty = (input: unknown): ReportPropertyKey => {
+  if (typeof input !== 'string' || !propertySet.has(input as ReportPropertyKey)) {
     throw new ValidationError(`Invalid property key: ${String(input)}`)
   }
 
-  return input as PropertyKey
+  return input as ReportPropertyKey
 }
 
 const ensurePagePath = (input: unknown): string => {
@@ -117,7 +134,26 @@ const ensureOptionalPagePath = (input: unknown): string | undefined => {
     throw new ValidationError('pagePath must be a non-empty string')
   }
 
-  return input.trim()
+  const normalized = input.trim()
+
+  if (!normalized.startsWith('/')) {
+    throw new ValidationError('pagePath must start with "/"')
+  }
+
+  if (normalized.length > 2_048) {
+    throw new ValidationError('pagePath must be 2048 characters or fewer')
+  }
+
+  const hasControlCharacters = [...normalized].some((char) => {
+    const code = char.charCodeAt(0)
+    return code < 32 || code === 127
+  })
+
+  if (hasControlCharacters) {
+    throw new ValidationError('pagePath must not include control characters')
+  }
+
+  return normalized
 }
 
 const ensureLimit = (input: unknown): number | undefined => {

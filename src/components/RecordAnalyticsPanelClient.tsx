@@ -12,238 +12,143 @@ import {
   YAxis,
 } from 'recharts'
 
-import type { MetricDelta, MetricKey, PropertyKey, Timeframe } from '../types/index.js'
+import type {
+  AggregateResult,
+  HealthResult,
+  MetricKey,
+  ReportResult,
+  Timeframe,
+  TimeseriesResult,
+} from '../types/index.js'
 
-type AggregateResponse = {
-  comparison?: {
-    deltas: Partial<Record<MetricKey, MetricDelta>>
-    previousMetrics: Partial<Record<MetricKey, number>>
-    previousRange: {
-      endDate: string
-      startDate: string
-    }
-  }
-  metrics: Partial<Record<MetricKey, number>>
-  pagePath?: string
-  range: {
-    endDate: string
-    startDate: string
-  }
-  timeframe: Timeframe
-}
-
-type TimeseriesPoint = {
-  date: string
-} & Partial<Record<MetricKey, number>>
-
-type TimeseriesResponse = {
-  metrics: MetricKey[]
-  pagePath?: string
-  points: TimeseriesPoint[]
-  range: {
-    endDate: string
-    startDate: string
-  }
-  timeframe: Timeframe
-}
-
-type ReportResponse = {
-  eventNames?: string[]
-  limit: number
-  metrics: MetricKey[]
-  pagePath?: string
-  property: PropertyKey
-  range: {
-    endDate: string
-    startDate: string
-  }
-  rows: Array<{
-    dimensionValue: string
-    metrics: Partial<Record<MetricKey, number>>
-  }>
-  timeframe: Timeframe
-}
-
-type HealthResponse = {
-  events: {
-    trackedEventNames: string[]
-  }
-}
+import { AnalyticsErrorBoundary } from './AnalyticsErrorBoundary.js'
+import {
+  chartStroke,
+  fetchJSON,
+  formatDelta,
+  formatInteger,
+  formatSeconds,
+  MetricCard,
+  srOnlyStyle,
+  tableCellStyle,
+  tableHeaderStyle,
+  TIMEFRAME_OPTIONS,
+  tooltipFormatter,
+} from './analyticsShared.js'
+import './analyticsControls.css'
 
 type Props = {
   apiBasePath: string
   pagePath: string
 }
 
-const TIMEFRAME_OPTIONS: Array<{ label: string; value: Timeframe }> = [
-  { label: '7d', value: '7d' },
-  { label: '30d', value: '30d' },
-  { label: '6mo', value: '6mo' },
-  { label: '12mo', value: '12mo' },
-  { label: 'Month to Date', value: 'currentMonth' },
-]
-
-const fetchJSON = async <T,>(input: RequestInfo, init?: RequestInit): Promise<T> => {
-  const response = await fetch(input, init)
-
-  const json = (await response.json()) as { error?: string } & T
-
-  if (!response.ok) {
-    throw new Error(json.error ?? 'Analytics request failed')
-  }
-
-  return json
-}
-
-const formatInteger = (value: number | undefined): string =>
-  typeof value === 'number' ? Math.round(value).toLocaleString() : '0'
-
-const formatSeconds = (value: number | undefined): string => {
-  const total = typeof value === 'number' ? Math.round(value) : 0
-  if (total < 60) {
-    return `${total}s`
-  }
-
-  const minutes = Math.floor(total / 60)
-  const seconds = total % 60
-  return `${minutes}m ${seconds}s`
-}
-
-const formatDelta = (metric: MetricKey, delta: MetricDelta | undefined): null | string => {
-  if (!delta) {
-    return null
-  }
-
-  const absolutePrefix = delta.absolute > 0 ? '+' : delta.absolute < 0 ? '-' : ''
-  const absoluteValue =
-    metric === 'sessionDuration'
-      ? formatSeconds(Math.abs(delta.absolute))
-      : Math.abs(Math.round(delta.absolute)).toLocaleString()
-  const percentValue =
-    delta.percentChange === null
-      ? 'n/a'
-      : `${delta.percentChange > 0 ? '+' : ''}${delta.percentChange.toFixed(1)}%`
-
-  return `${absolutePrefix}${absoluteValue} (${percentValue}) vs previous`
-}
-
-const tooltipFormatter = (
-  value: number | string | undefined,
-  key: string | undefined,
-): [string, string] => {
-  const numericValue = typeof value === 'number' ? value : Number(value ?? 0)
-  const resolvedKey = key ?? 'metric'
-
-  if (resolvedKey === 'sessionDuration') {
-    return [formatSeconds(numericValue), 'Avg Session Duration']
-  }
-
-  if (resolvedKey === 'bounceRate') {
-    return [`${numericValue.toFixed(2)}%`, 'Bounce Rate']
-  }
-
-  return [formatInteger(numericValue), resolvedKey]
-}
-
 export const RecordAnalyticsPanelClient: React.FC<Props> = ({ apiBasePath, pagePath }) => {
-  const [aggregate, setAggregate] = useState<AggregateResponse | null>(null)
+  const [aggregate, setAggregate] = useState<AggregateResult | null>(null)
   const [comparePrevious, setComparePrevious] = useState(true)
   const [error, setError] = useState<null | string>(null)
-  const [eventReport, setEventReport] = useState<null | ReportResponse>(null)
+  const [eventReport, setEventReport] = useState<null | ReportResult>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [sourceReport, setSourceReport] = useState<null | ReportResponse>(null)
+  const [sourceReport, setSourceReport] = useState<null | ReportResult>(null)
+  const [refreshCounter, setRefreshCounter] = useState(0)
   const [trackedEventNames, setTrackedEventNames] = useState<string[]>([])
   const [timeframe, setTimeframe] = useState<Timeframe>('30d')
-  const [timeseries, setTimeseries] = useState<null | TimeseriesResponse>(null)
+  const [timeseries, setTimeseries] = useState<null | TimeseriesResult>(null)
 
   useEffect(() => {
     let isMounted = true
+    const abortController = new AbortController()
 
     const run = async (): Promise<void> => {
-      try {
-        setIsLoading(true)
+      setIsLoading(true)
 
-        const body = {
-          comparePrevious,
-          metrics: ['views', 'visitors', 'sessions', 'sessionDuration'],
-          pagePath,
-          timeframe,
-        }
+      const body = {
+        comparePrevious,
+        metrics: ['views', 'visitors', 'sessions', 'sessionDuration'],
+        pagePath,
+        timeframe,
+      }
 
-        const [aggregateResponse, timeseriesResponse, sourceResponse, eventsResponse, healthResponse] = await Promise.all([
-          fetchJSON<AggregateResponse>(`${apiBasePath}/page/aggregate`, {
-            body: JSON.stringify(body),
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            method: 'POST',
+      const results = await Promise.allSettled([
+        fetchJSON<AggregateResult>(`${apiBasePath}/page/aggregate`, {
+          body: JSON.stringify(body),
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          method: 'POST',
+          signal: abortController.signal,
+        }),
+        fetchJSON<TimeseriesResult>(`${apiBasePath}/page/timeseries`, {
+          body: JSON.stringify({
+            metrics: ['views', 'visitors'],
+            pagePath,
+            timeframe,
           }),
-          fetchJSON<TimeseriesResponse>(`${apiBasePath}/page/timeseries`, {
-            body: JSON.stringify({
-              metrics: ['views', 'visitors'],
-              pagePath,
-              timeframe,
-            }),
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          method: 'POST',
+          signal: abortController.signal,
+        }),
+        fetchJSON<ReportResult>(`${apiBasePath}/report`, {
+          body: JSON.stringify({
+            limit: 6,
+            metrics: ['sessions', 'visitors'],
+            pagePath,
+            property: 'source',
+            timeframe,
           }),
-          fetchJSON<ReportResponse>(`${apiBasePath}/report`, {
-            body: JSON.stringify({
-              limit: 6,
-              metrics: ['sessions', 'visitors'],
-              pagePath,
-              property: 'source',
-              timeframe,
-            }),
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          method: 'POST',
+          signal: abortController.signal,
+        }),
+        fetchJSON<ReportResult>(`${apiBasePath}/report`, {
+          body: JSON.stringify({
+            eventNames: [],
+            limit: 100,
+            metrics: ['eventCount', 'visitors'],
+            pagePath,
+            property: 'event',
+            timeframe,
           }),
-          fetchJSON<ReportResponse>(`${apiBasePath}/report`, {
-            body: JSON.stringify({
-              eventNames: [],
-              limit: 100,
-              metrics: ['eventCount', 'visitors'],
-              pagePath,
-              property: 'event',
-              timeframe,
-            }),
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            method: 'POST',
-          }),
-          fetchJSON<HealthResponse>(`${apiBasePath}/health`),
-        ])
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          method: 'POST',
+          signal: abortController.signal,
+        }),
+        fetchJSON<HealthResult>(`${apiBasePath}/health`, {
+          signal: abortController.signal,
+        }),
+      ])
 
-        if (!isMounted) {
-          return
-        }
+      if (!isMounted) {
+        return
+      }
 
-        setAggregate(aggregateResponse)
-        setEventReport(eventsResponse)
-        setSourceReport(sourceResponse)
-        setTrackedEventNames(healthResponse.events.trackedEventNames)
-        setTimeseries(timeseriesResponse)
+      const [aggregateResult, timeseriesResult, sourceResult, eventsResult, healthResult] = results
+
+      setAggregate(aggregateResult.status === 'fulfilled' ? aggregateResult.value : null)
+      setTimeseries(timeseriesResult.status === 'fulfilled' ? timeseriesResult.value : null)
+      setSourceReport(sourceResult.status === 'fulfilled' ? sourceResult.value : null)
+      setEventReport(eventsResult.status === 'fulfilled' ? eventsResult.value : null)
+      setTrackedEventNames(
+        healthResult.status === 'fulfilled' ? healthResult.value.events.trackedEventNames : [],
+      )
+
+      const failures = results.filter((result) => result.status === 'rejected')
+      if (failures.length === 0) {
         setError(null)
-      } catch (requestError) {
-        if (!isMounted) {
-          return
-        }
+      } else if (failures.length === results.length) {
+        const message = failures[0].reason instanceof Error ? failures[0].reason.message : 'Unable to load analytics'
+        setError(message)
+      } else {
+        setError('Some analytics panels are temporarily unavailable.')
+      }
 
-        setAggregate(null)
-        setEventReport(null)
-        setSourceReport(null)
-        setTrackedEventNames([])
-        setTimeseries(null)
-        setError(requestError instanceof Error ? requestError.message : 'Unable to load analytics')
-      } finally {
-        if (isMounted) {
-          setIsLoading(false)
-        }
+      if (isMounted) {
+        setIsLoading(false)
       }
     }
 
@@ -251,8 +156,9 @@ export const RecordAnalyticsPanelClient: React.FC<Props> = ({ apiBasePath, pageP
 
     return () => {
       isMounted = false
+      abortController.abort()
     }
-  }, [apiBasePath, comparePrevious, pagePath, timeframe])
+  }, [apiBasePath, comparePrevious, pagePath, refreshCounter, timeframe])
 
   const chartData = useMemo(() => {
     return timeseries?.points ?? []
@@ -279,7 +185,7 @@ export const RecordAnalyticsPanelClient: React.FC<Props> = ({ apiBasePath, pageP
 
         return row
       })
-      .filter((row): row is ReportResponse['rows'][number] => row !== null)
+      .filter((row): row is ReportResult['rows'][number] => row !== null)
 
     const additionalRows = eventReport.rows.filter((row) => {
       if (!hasNonZeroMetrics(row.metrics)) {
@@ -299,7 +205,8 @@ export const RecordAnalyticsPanelClient: React.FC<Props> = ({ apiBasePath, pageP
   }, [eventReport, trackedEventNames])
 
   return (
-    <section style={{ padding: '1rem 0' }}>
+    <AnalyticsErrorBoundary>
+      <section style={{ padding: '1rem 0' }}>
       <header
         style={{
           alignItems: 'center',
@@ -312,7 +219,7 @@ export const RecordAnalyticsPanelClient: React.FC<Props> = ({ apiBasePath, pageP
       >
         <div>
           <h3 style={{ fontSize: '1.25rem', margin: 0 }}>Record Analytics</h3>
-          <p style={{ color: '#6b7280', fontSize: '0.875rem', margin: '0.25rem 0 0' }}>
+          <p style={{ color: 'var(--theme-elevation-600)', fontSize: '0.875rem', margin: '0.25rem 0 0' }}>
             Path: <code>{pagePath}</code>
           </p>
         </div>
@@ -322,6 +229,7 @@ export const RecordAnalyticsPanelClient: React.FC<Props> = ({ apiBasePath, pageP
             <span style={{ fontSize: '0.875rem' }}>Window</span>
             <select
               aria-label='Select timeframe'
+              className='ga4-control-select'
               onChange={(event) => {
                 setTimeframe(event.currentTarget.value as Timeframe)
               }}
@@ -339,6 +247,7 @@ export const RecordAnalyticsPanelClient: React.FC<Props> = ({ apiBasePath, pageP
             <input
               aria-label='Compare previous period'
               checked={comparePrevious}
+              className='ga4-control-input'
               onChange={(event) => {
                 setComparePrevious(event.currentTarget.checked)
               }}
@@ -346,11 +255,23 @@ export const RecordAnalyticsPanelClient: React.FC<Props> = ({ apiBasePath, pageP
             />
             <span style={{ fontSize: '0.875rem' }}>Compare Previous</span>
           </label>
+
+          <button
+            className='ga4-control-button'
+            onClick={() => setRefreshCounter((c) => c + 1)}
+            type='button'
+          >
+            Refresh
+          </button>
         </div>
       </header>
 
-      {isLoading ? <p>Loading analytics...</p> : null}
-      {error ? <p style={{ color: '#dc2626' }}>{error}</p> : null}
+      {isLoading ? <p aria-live='polite'>Loading analytics...</p> : null}
+      {error ? (
+        <p aria-live='polite' role='alert' style={{ color: 'var(--theme-error-500)' }}>
+          {error}
+        </p>
+      ) : null}
 
       {aggregate ? (
         <div
@@ -387,44 +308,64 @@ export const RecordAnalyticsPanelClient: React.FC<Props> = ({ apiBasePath, pageP
       {chartData.length > 0 ? (
         <div
           style={{
-            border: '1px solid #e5e7eb',
+            border: '1px solid var(--theme-elevation-150)',
             borderRadius: '0.5rem',
-            height: 320,
             padding: '0.5rem 0.75rem',
           }}
         >
-          <ResponsiveContainer height='100%' width='100%'>
-            <LineChart data={chartData} margin={{ bottom: 8, left: 8, right: 8, top: 16 }}>
-              <CartesianGrid stroke='#e5e7eb' strokeDasharray='3 3' />
-              <XAxis dataKey='date' minTickGap={24} />
-              <YAxis />
-              <Tooltip formatter={tooltipFormatter} />
-              <Legend />
-              <Line
-                dataKey='views'
-                dot={false}
-                name='Views'
-                stroke='#2563eb'
-                strokeWidth={2}
-                type='monotone'
-              />
-              <Line
-                dataKey='visitors'
-                dot={false}
-                name='Visitors'
-                stroke='#16a34a'
-                strokeWidth={2}
-                type='monotone'
-              />
-            </LineChart>
-          </ResponsiveContainer>
+          <div aria-label='Record traffic timeseries chart' role='img' style={{ height: 320 }}>
+            <ResponsiveContainer height='100%' width='100%'>
+              <LineChart data={chartData} margin={{ bottom: 8, left: 8, right: 8, top: 16 }}>
+                <CartesianGrid stroke={chartStroke.grid} strokeDasharray='3 3' />
+                <XAxis dataKey='date' minTickGap={24} />
+                <YAxis />
+                <Tooltip formatter={tooltipFormatter} />
+                <Legend />
+                <Line
+                  dataKey='views'
+                  dot={false}
+                  name='Views'
+                  stroke={chartStroke.views}
+                  strokeWidth={2}
+                  type='monotone'
+                />
+                <Line
+                  dataKey='visitors'
+                  dot={false}
+                  name='Visitors'
+                  stroke={chartStroke.visitors}
+                  strokeWidth={2}
+                  type='monotone'
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          <table style={srOnlyStyle}>
+            <caption>Record traffic timeseries fallback table</caption>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Views</th>
+                <th>Visitors</th>
+              </tr>
+            </thead>
+            <tbody>
+              {chartData.map((point) => (
+                <tr key={point.date}>
+                  <td>{point.date}</td>
+                  <td>{formatInteger(point.views)}</td>
+                  <td>{formatInteger(point.visitors)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       ) : null}
 
       {sourceReport && sourceReport.rows.length > 0 ? (
         <div
           style={{
-            border: '1px solid #e5e7eb',
+            border: '1px solid var(--theme-elevation-150)',
             borderRadius: '0.5rem',
             marginTop: '1rem',
             overflow: 'hidden',
@@ -432,13 +373,13 @@ export const RecordAnalyticsPanelClient: React.FC<Props> = ({ apiBasePath, pageP
         >
           <header
             style={{
-              backgroundColor: '#f9fafb',
-              borderBottom: '1px solid #e5e7eb',
+              backgroundColor: 'var(--theme-elevation-50)',
+              borderBottom: '1px solid var(--theme-elevation-150)',
               padding: '0.75rem 1rem',
             }}
           >
             <h4 style={{ fontSize: '0.95rem', margin: 0 }}>Top Traffic Sources</h4>
-            <p style={{ color: '#6b7280', fontSize: '0.8rem', margin: '0.25rem 0 0' }}>
+            <p style={{ color: 'var(--theme-elevation-600)', fontSize: '0.8rem', margin: '0.25rem 0 0' }}>
               Source breakdown for this record and selected timeframe.
             </p>
           </header>
@@ -466,7 +407,7 @@ export const RecordAnalyticsPanelClient: React.FC<Props> = ({ apiBasePath, pageP
       {eventReport && eventRows.length > 0 ? (
         <div
           style={{
-            border: '1px solid #e5e7eb',
+            border: '1px solid var(--theme-elevation-150)',
             borderRadius: '0.5rem',
             marginTop: '1rem',
             overflow: 'hidden',
@@ -474,13 +415,13 @@ export const RecordAnalyticsPanelClient: React.FC<Props> = ({ apiBasePath, pageP
         >
           <header
             style={{
-              backgroundColor: '#f9fafb',
-              borderBottom: '1px solid #e5e7eb',
+              backgroundColor: 'var(--theme-elevation-50)',
+              borderBottom: '1px solid var(--theme-elevation-150)',
               padding: '0.75rem 1rem',
             }}
           >
             <h4 style={{ fontSize: '0.95rem', margin: 0 }}>Tracked Events</h4>
-            <p style={{ color: '#6b7280', fontSize: '0.8rem', margin: '0.25rem 0 0' }}>
+            <p style={{ color: 'var(--theme-elevation-600)', fontSize: '0.8rem', margin: '0.25rem 0 0' }}>
               Event activity for this record and selected timeframe.
             </p>
           </header>
@@ -504,45 +445,7 @@ export const RecordAnalyticsPanelClient: React.FC<Props> = ({ apiBasePath, pageP
           </table>
         </div>
       ) : null}
-    </section>
+      </section>
+    </AnalyticsErrorBoundary>
   )
-}
-
-type MetricCardProps = {
-  delta?: null | string
-  label: string
-  value: string
-}
-
-const MetricCard: React.FC<MetricCardProps> = ({ delta, label, value }) => {
-  return (
-    <article
-      style={{
-        backgroundColor: '#f9fafb',
-        border: '1px solid #e5e7eb',
-        borderRadius: '0.5rem',
-        padding: '0.75rem',
-      }}
-    >
-      <p style={{ color: '#6b7280', fontSize: '0.8rem', margin: 0 }}>{label}</p>
-      <p style={{ fontSize: '1.1rem', fontWeight: 600, margin: '0.25rem 0 0' }}>{value}</p>
-      {delta ? (
-        <p style={{ color: '#6b7280', fontSize: '0.75rem', margin: '0.3rem 0 0' }}>{delta}</p>
-      ) : null}
-    </article>
-  )
-}
-
-const tableHeaderStyle: React.CSSProperties = {
-  borderBottom: '1px solid #e5e7eb',
-  fontSize: '0.75rem',
-  fontWeight: 600,
-  padding: '0.5rem 1rem',
-  textAlign: 'left',
-}
-
-const tableCellStyle: React.CSSProperties = {
-  borderBottom: '1px solid #f3f4f6',
-  fontSize: '0.85rem',
-  padding: '0.5rem 1rem',
 }

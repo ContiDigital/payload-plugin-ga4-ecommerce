@@ -5,6 +5,7 @@ import type { AnalyticsService } from '../services/analyticsService.js'
 
 import { assertAccess } from '../utilities/access.js'
 import { errorResponse, jsonResponse } from '../utilities/http.js'
+import { assertInboundRateLimit } from '../utilities/inboundRateLimit.js'
 
 export const createHealthEndpoint = (
   options: NormalizedPluginOptions,
@@ -13,6 +14,8 @@ export const createHealthEndpoint = (
   return {
     handler: async (req) => {
       try {
+        assertInboundRateLimit(req, options, 'health')
+
         await assertAccess(req, options)
         return jsonResponse(analyticsService.getHealth())
       } catch (error) {

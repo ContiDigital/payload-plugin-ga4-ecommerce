@@ -14,7 +14,7 @@ export const METRIC_KEYS = [
 export type MetricKey = (typeof METRIC_KEYS)[number]
 
 export const PROPERTY_KEYS = ['page', 'country', 'source', 'device', 'event'] as const
-export type PropertyKey = (typeof PROPERTY_KEYS)[number]
+export type ReportPropertyKey = (typeof PROPERTY_KEYS)[number]
 
 export type AdminMode = 'both' | 'dashboard' | 'headless' | 'route'
 
@@ -33,7 +33,6 @@ export type CredentialResolution =
       path: string
       type: 'keyFilename'
     }
-  | string
 
 export type GetCredentialsFn = (args: {
   payload: null | Payload
@@ -46,16 +45,33 @@ export type CollectionAnalyticsConfig = {
   slug: string
 }
 
+export type AnalyticsUIPlacementConfig = {
+  apiBasePath?: string
+  apiRoute?: string
+  collectionConfig: CollectionAnalyticsConfig
+  collectionSlug: string
+}
+
 export type AccessFn = (args: {
   payload: Payload
   req: PayloadRequest
   user: PayloadRequest['user']
 }) => boolean | Promise<boolean>
 
+export type CacheStrategy = 'payloadCollection' | 'redis'
+
+export type RedisCacheConfig = {
+  keyPrefix?: string
+  url: string
+}
+
 export type CacheConfig = {
   aggregateTtlMs?: number
+  collectionSlug?: string
   enabled?: boolean
   maxEntries?: number
+  redis?: RedisCacheConfig
+  strategy?: CacheStrategy
   timeseriesTtlMs?: number
 }
 
@@ -65,8 +81,11 @@ export type RateLimitConfig = {
   includePropertyQuota?: boolean
   jitterFactor?: number
   maxConcurrency?: number
+  maxQueueSize?: number
+  maxRequestsPerMinute?: number
   maxRetries?: number
   maxRetryDelayMs?: number
+  requestTimeoutMs?: number
 }
 
 export type AdminConfig = {
@@ -95,6 +114,14 @@ export type PayloadGA4AnalyticsPluginOptions = {
   access?: AccessFn
   admin?: AdminConfig
   api?: APIConfig
+  /**
+   * When false, the plugin will not automatically inject analytics UI into
+   * collection documents. Use `AnalyticsUIPlaceholder`, `getAnalyticsField()`,
+   * or `getAnalyticsTab()` exports to manually place analytics in your
+   * collection configs.
+   * @default true
+   */
+  autoInjectUI?: boolean
   cache?: CacheConfig
   collections?: CollectionAnalyticsConfig[]
   disabled?: boolean
@@ -115,10 +142,14 @@ export type NormalizedPluginOptions = {
   api: {
     basePath: `/${string}`
   }
+  autoInjectUI: boolean
   cache: {
     aggregateTtlMs: number
+    collectionSlug: string
     enabled: boolean
     maxEntries: number
+    redis?: RedisCacheConfig
+    strategy: CacheStrategy
     timeseriesTtlMs: number
   }
   collections: CollectionAnalyticsConfig[]
@@ -135,8 +166,11 @@ export type NormalizedPluginOptions = {
     includePropertyQuota: boolean
     jitterFactor: number
     maxConcurrency: number
+    maxQueueSize: number
+    maxRequestsPerMinute: number
     maxRetries: number
     maxRetryDelayMs: number
+    requestTimeoutMs: number
   }
   source: {
     dimension: SourceDimensionKey
@@ -189,7 +223,7 @@ export type ReportResult = {
   limit: number
   metrics: MetricKey[]
   pagePath?: string
-  property: PropertyKey
+  property: ReportPropertyKey
   range: DateRange
   rows: ReportRow[]
   timeframe: Timeframe
@@ -217,7 +251,7 @@ export type CompatibilityResult = {
     apiName: string
     compatibility: string
   }>
-  property: PropertyKey
+  property: ReportPropertyKey
 }
 
 export type LiveResult = {
@@ -257,38 +291,28 @@ export type ReportInput = {
   limit?: number
   metrics?: MetricKey[]
   pagePath?: string
-  property: PropertyKey
+  property: ReportPropertyKey
   timeframe?: Timeframe
   useCache?: boolean
 }
 
 export type CompatibilityInput = {
   metrics?: MetricKey[]
-  property: PropertyKey
+  property: ReportPropertyKey
 }
 
 export type HealthResult = {
   adminMode: AdminMode
   cache: {
-    aggregateTtlMs: number
     enabled: boolean
-    maxEntries: number
-    timeseriesTtlMs: number
+    strategy: CacheStrategy
   }
   events: {
-    reportLimit: number
     trackedEventNames: string[]
   }
   rateLimit: {
-    baseRetryDelayMs: number
     enabled: boolean
-    includePropertyQuota: boolean
-    jitterFactor: number
-    maxConcurrency: number
-    maxRetries: number
-    maxRetryDelayMs: number
   }
-  routePath: string
   source: {
     dimension: SourceDimensionKey
   }

@@ -17,6 +17,17 @@ export default defineConfig(() => {
       }),
     ],
     test: {
+      coverage: {
+        include: ['src/**/*.ts'],
+        provider: 'v8',
+        reporter: ['text', 'lcov'],
+        thresholds: {
+          branches: 50,
+          functions: 50,
+          lines: 50,
+          statements: 50,
+        },
+      },
       exclude: ['dev/e2e.spec.ts'],
       environment: 'node',
       hookTimeout: 30_000,

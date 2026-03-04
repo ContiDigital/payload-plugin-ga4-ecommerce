@@ -46,13 +46,6 @@ type GA4ClientCredentials =
     }
 
 const normalizeCredentials = (value: CredentialResolution): GA4ClientCredentials => {
-  if (typeof value === 'string') {
-    return {
-      type: 'keyFilename',
-      keyFilename: value,
-    }
-  }
-
   if (value.type === 'keyFilename') {
     return {
       type: 'keyFilename',
@@ -79,10 +72,21 @@ export class GA4ReporterService {
   private readonly clientByCredentials = new Map<string, BetaAnalyticsDataClient>()
   private readonly getCredentials: GetCredentialsFn
   private readonly propertyId: string
+  private readonly requestTimeoutMs: number
 
-  constructor(options: Pick<NormalizedPluginOptions, 'getCredentials' | 'propertyId'>) {
+  constructor(options: Pick<NormalizedPluginOptions, 'getCredentials' | 'propertyId' | 'rateLimit'>) {
     this.getCredentials = options.getCredentials
     this.propertyId = options.propertyId
+    this.requestTimeoutMs = options.rateLimit.requestTimeoutMs
+  }
+
+  async destroy(): Promise<void> {
+    const closePromises: Promise<void>[] = []
+    for (const [_key, client] of this.clientByCredentials.entries()) {
+      closePromises.push(client.close().catch(() => undefined))
+    }
+    this.clientByCredentials.clear()
+    await Promise.all(closePromises)
   }
 
   async getReporter(req: PayloadRequest): Promise<GA4Reporter> {
@@ -109,21 +113,30 @@ export class GA4ReporterService {
       if (this.clientByCredentials.size >= MAX_CLIENT_CACHE_ENTRIES) {
         const oldestKey = this.clientByCredentials.keys().next().value
         if (oldestKey !== undefined) {
+          const oldestClient = this.clientByCredentials.get(oldestKey)
           this.clientByCredentials.delete(oldestKey)
+          void oldestClient?.close().catch(() => undefined)
         }
       }
 
       this.clientByCredentials.set(key, client)
+    } else {
+      // Touch existing client for LRU behavior.
+      this.clientByCredentials.delete(key)
+      this.clientByCredentials.set(key, client)
     }
 
     const propertyName = `properties/${this.propertyId}`
+    const callOptions = {
+      timeout: this.requestTimeoutMs,
+    }
 
     return {
       checkCompatibility: async (request) => {
         const [response] = await client.checkCompatibility({
           ...request,
           property: propertyName,
-        })
+        }, callOptions)
 
         return response
       },
@@ -131,7 +144,7 @@ export class GA4ReporterService {
         const [response] = await client.getMetadata({
           ...request,
           name: request.name ?? `${propertyName}/metadata`,
-        })
+        }, callOptions)
 
         return response
       },
@@ -140,7 +153,7 @@ export class GA4ReporterService {
         const [response] = await client.runRealtimeReport({
           ...request,
           property: propertyName,
-        })
+        }, callOptions)
 
         return response
       },
@@ -148,7 +161,7 @@ export class GA4ReporterService {
         const [response] = await client.runReport({
           ...request,
           property: propertyName,
-        })
+        }, callOptions)
 
         return response
       },

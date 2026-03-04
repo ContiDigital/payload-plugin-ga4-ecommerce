@@ -19,13 +19,13 @@
       "@payload-config": [
         "./payload.config.ts"
       ],
-      "payload-ga4-analytics-plugin": [
+      "payload-plugin-ga4-ecommerce": [
         "../src/index.ts"
       ],
-      "payload-ga4-analytics-plugin/client": [
+      "payload-plugin-ga4-ecommerce/client": [
         "../src/exports/client.ts"
       ],
-      "payload-ga4-analytics-plugin/rsc": [
+      "payload-plugin-ga4-ecommerce/rsc": [
         "../src/exports/rsc.ts"
       ]
     },

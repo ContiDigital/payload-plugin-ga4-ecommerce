@@ -5,6 +5,7 @@ import type { AnalyticsService } from '../services/analyticsService.js'
 
 import { assertAccess } from '../utilities/access.js'
 import { errorResponse, jsonResponse } from '../utilities/http.js'
+import { assertInboundRateLimit } from '../utilities/inboundRateLimit.js'
 import { parsePageTimeseriesInput, parseRequestBody } from '../utilities/validation.js'
 
 export const createPageTimeseriesEndpoint = (
@@ -14,6 +15,8 @@ export const createPageTimeseriesEndpoint = (
   return {
     handler: async (req) => {
       try {
+        assertInboundRateLimit(req, options, 'pageTimeseries')
+
         await assertAccess(req, options)
 
         const requestBody = await parseRequestBody(req)

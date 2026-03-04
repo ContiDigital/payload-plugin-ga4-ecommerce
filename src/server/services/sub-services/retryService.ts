@@ -4,15 +4,33 @@ const sleep = async (durationMs: number): Promise<void> => {
   })
 }
 
-const retryableStatusCodes = new Set([429, 500, 502, 503, 504])
+const RETRYABLE_HTTP_STATUS_CODES = new Set([429, 500, 502, 503, 504])
+const RETRYABLE_GRPC_CODES = new Set([4, 8, 14]) // DEADLINE_EXCEEDED, RESOURCE_EXHAUSTED, UNAVAILABLE
 
-const inferStatusCode = (error: unknown): number | undefined => {
+type RetryExecutionOptions = {
+  onRetry?: (args: {
+    attempt: number
+    delayMs: number
+    error: unknown
+    maxRetries: number
+  }) => Promise<void> | void
+}
+
+const inferCode = (error: unknown): number | undefined => {
   if (typeof error !== 'object' || error === null) {
     return undefined
   }
 
   if ('code' in error && typeof error.code === 'number') {
     return error.code
+  }
+
+  return undefined
+}
+
+const inferStatusCode = (error: unknown): number | undefined => {
+  if (typeof error !== 'object' || error === null) {
+    return undefined
   }
 
   if ('status' in error && typeof error.status === 'number') {
@@ -23,9 +41,13 @@ const inferStatusCode = (error: unknown): number | undefined => {
 }
 
 const isRetryable = (error: unknown): boolean => {
-  const status = inferStatusCode(error)
+  const code = inferCode(error)
+  if (code !== undefined && RETRYABLE_GRPC_CODES.has(code)) {
+    return true
+  }
 
-  if (status && retryableStatusCodes.has(status)) {
+  const status = inferStatusCode(error)
+  if (status !== undefined && RETRYABLE_HTTP_STATUS_CODES.has(status)) {
     return true
   }
 
@@ -58,11 +80,11 @@ export class RetryService {
 
   private computeDelayMs(attempt: number): number {
     const expDelay = Math.min(this.maxDelayMs, this.baseDelayMs * 2 ** attempt)
-    const jitter = expDelay * this.jitterFactor * Math.random()
-    return Math.round(expDelay + jitter)
+    const fullJitterUpperBound = expDelay * (1 + this.jitterFactor)
+    return Math.max(0, Math.round(Math.random() * fullJitterUpperBound))
   }
 
-  async execute<T>(operation: () => Promise<T>): Promise<T> {
+  async execute<T>(operation: () => Promise<T>, options?: RetryExecutionOptions): Promise<T> {
     let attempt = 0
 
     while (true) {
@@ -74,6 +96,12 @@ export class RetryService {
         }
 
         const retryDelay = this.computeDelayMs(attempt)
+        await options?.onRetry?.({
+          attempt: attempt + 1,
+          delayMs: retryDelay,
+          error,
+          maxRetries: this.maxRetries,
+        })
         attempt += 1
         await sleep(retryDelay)
       }
