@@ -1,4 +1,4 @@
-import type { Config, Field, TabsField } from 'payload'
+import type { Config, Field } from 'payload'
 
 import { describe, expect, test } from 'vitest'
 
@@ -133,22 +133,21 @@ describe('applyCollectionEnhancements', () => {
       {
         type: 'tabs',
         tabs: [
-          { label: 'Content', fields: [{ name: 'title', type: 'text' }] },
-          { label: 'Insights', fields: [AnalyticsUIPlaceholder] },
-          { label: 'SEO', fields: [{ name: 'metaTitle', type: 'text' }] },
+          { fields: [{ name: 'title', type: 'text' }], label: 'Content' },
+          { fields: [AnalyticsUIPlaceholder], label: 'Insights' },
+          { fields: [{ name: 'metaTitle', type: 'text' }], label: 'SEO' },
         ],
       },
     ])
 
     const result = applyCollectionEnhancements(config, createOptions({ autoInjectUI: false }))
     const posts = result.collections?.find((c) => c.slug === 'posts')
-    const tabsField = posts?.fields?.find((f) => f.type === 'tabs') as TabsField | undefined
+    const tabsField = posts?.fields?.find((f) => f.type === 'tabs')
 
     expect(tabsField).toBeDefined()
-    // Should be 3 tabs — the placeholder is replaced, not appended
-    expect(tabsField?.tabs).toHaveLength(3)
+    expect(tabsField!.tabs).toHaveLength(3)
 
-    const insightsTab = tabsField?.tabs.find((t) => t.label === 'Insights')
+    const insightsTab = tabsField!.tabs.find((t) => t.label === 'Insights')
     assertHydratedField(findAnalyticsField(insightsTab?.fields ?? []))
   })
 
@@ -170,20 +169,20 @@ describe('applyCollectionEnhancements', () => {
       {
         type: 'tabs',
         tabs: [
-          { label: 'Content', fields: [{ name: 'title', type: 'text' }] },
-          { label: 'SEO', fields: [{ name: 'metaTitle', type: 'text' }] },
+          { fields: [{ name: 'title', type: 'text' }], label: 'Content' },
+          { fields: [{ name: 'metaTitle', type: 'text' }], label: 'SEO' },
         ],
       },
     ])
 
     const result = applyCollectionEnhancements(config, createOptions())
     const posts = result.collections?.find((c) => c.slug === 'posts')
-    const tabsField = posts?.fields?.find((f) => f.type === 'tabs') as TabsField | undefined
+    const tabsField = posts?.fields?.find((f) => f.type === 'tabs')
 
-    // Should now have 3 tabs — Content, SEO, Analytics (appended)
-    expect(tabsField?.tabs).toHaveLength(3)
+    expect(tabsField).toBeDefined()
+    expect(tabsField!.tabs).toHaveLength(3)
 
-    const analyticsTab = tabsField?.tabs[2]
+    const analyticsTab = tabsField!.tabs[2]
     expect(analyticsTab?.label).toBe('Analytics')
     assertHydratedField(findAnalyticsField(analyticsTab?.fields ?? []))
   })
@@ -197,30 +196,27 @@ describe('applyCollectionEnhancements', () => {
     const result = applyCollectionEnhancements(config, createOptions())
     const posts = result.collections?.find((c) => c.slug === 'posts')
 
-    // Should be 3 fields: title, body, analytics
     expect(posts?.fields).toHaveLength(3)
     assertHydratedField(findAnalyticsField(posts?.fields ?? []))
   })
 
   test('does not duplicate analytics field on existing tabs', () => {
-    // First pass
     const config = createCollectionConfig([
       {
         type: 'tabs',
         tabs: [
-          { label: 'Content', fields: [{ name: 'title', type: 'text' }] },
+          { fields: [{ name: 'title', type: 'text' }], label: 'Content' },
         ],
       },
     ])
 
     const first = applyCollectionEnhancements(config, createOptions())
-    // Run enhancement again on already-enhanced config
     const second = applyCollectionEnhancements(first, createOptions())
     const posts = second.collections?.find((c) => c.slug === 'posts')
-    const tabsField = posts?.fields?.find((f) => f.type === 'tabs') as TabsField | undefined
+    const tabsField = posts?.fields?.find((f) => f.type === 'tabs')
 
-    // Should still be 2 tabs, not 3
-    expect(tabsField?.tabs).toHaveLength(2)
+    expect(tabsField).toBeDefined()
+    expect(tabsField!.tabs).toHaveLength(2)
   })
 
   test('does not duplicate analytics field on root fields', () => {
@@ -230,7 +226,6 @@ describe('applyCollectionEnhancements', () => {
     const second = applyCollectionEnhancements(first, createOptions())
     const posts = second.collections?.find((c) => c.slug === 'posts')
 
-    // Should be 2 fields, not 3
     expect(posts?.fields).toHaveLength(2)
   })
 
@@ -297,7 +292,7 @@ describe('applyCollectionEnhancements', () => {
           collectionSlug: 'ga4-cache',
           enabled: true,
           maxEntries: 100,
-          redis: { url: 'redis://localhost:6379', keyPrefix: 'test' },
+          redis: { keyPrefix: 'test', url: 'redis://localhost:6379' },
           strategy: 'redis',
           timeseriesTtlMs: 30_000,
         },
