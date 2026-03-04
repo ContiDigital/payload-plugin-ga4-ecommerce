@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+      - release/*
+  push:
+    branches:
+      - main
+      - master
+      - release/*
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Quality Gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          cache: pnpm
+          node-version: 20
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint Source
+        run: pnpm exec eslint src --max-warnings=0
+
+      - name: Run Integration and Unit Tests
+        run: pnpm test:int
+
+      - name: Build
+        run: pnpm build
+
+      - name: Pack Install Smoke Test
+        run: pnpm pack:smoke
+
+  ga4-live-smoke:
+    name: GA4 Live Smoke
+    if: ${{ secrets.GA4_PROPERTY_ID != '' && secrets.GA4_CREDENTIALS_JSON != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          cache: pnpm
+          node-version: 20
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare GA4 Credentials
+        run: |
+          mkdir -p dev
+          printf '%s' "${GA4_CREDENTIALS_JSON}" > dev/.google-credentials.json
+        env:
+          GA4_CREDENTIALS_JSON: ${{ secrets.GA4_CREDENTIALS_JSON }}
+
+      - name: Run GA4 Live Smoke
+        run: node ./scripts/ga4-live-smoke.mjs
+        env:
+          GA4_CREDENTIALS_PATH: ./dev/.google-credentials.json
+          GA4_PROPERTY_ID: ${{ secrets.GA4_PROPERTY_ID }}
