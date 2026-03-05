@@ -1,10 +1,18 @@
 # payload-plugin-ga4-ecommerce
 
-Enterprise-grade Google Analytics 4 reporting for [Payload CMS](https://payloadcms.com) v3. Built for production ecommerce.
+Production-grade Google Analytics 4 reporting for [Payload CMS](https://payloadcms.com) v3.
+
+Originally built as a custom integration for [Fine's Gallery](https://finesgallery.com) — a high-traffic marble and stone ecommerce storefront running Payload CMS in production. Extracted and open-sourced as a standalone plugin for any Payload v3 project that needs real GA4 analytics inside the admin panel.
 
 Ships a full GA4 Data API service layer with admin analytics UI, per-record collection analytics, tiered caching, bounded concurrency, retry with exponential backoff, in-flight request deduplication, and dual-layer rate limiting — all as a single Payload plugin.
 
-Currently powering analytics for [Fine's Gallery](https://finesgallery.com), a high-traffic marble and stone ecommerce storefront running Payload CMS in production.
+Also fully compatible with the official [Payload Ecommerce Template](https://github.com/payloadcms/payload/tree/main/templates/ecommerce) — see [Ecommerce Template Setup](#ecommerce-template-setup) below.
+
+## Production Demo
+
+https://github.com/user-attachments/assets/bd7f2496-d319-45f5-b2c0-2e3ff2b4be6c
+
+> Analytics dashboard and per-record analytics running on [Fine's Gallery](https://finesgallery.com) in production.
 
 ## Features
 
@@ -52,12 +60,11 @@ export default buildConfig({
     payloadGa4AnalyticsPlugin({
       propertyId: process.env.GA4_PROPERTY_ID!,
       getCredentials: async () => ({
-        path: process.env.GA4_CREDENTIALS_PATH!,
         type: 'keyFilename',
+        path: process.env.GA4_CREDENTIALS_PATH!,
       }),
       collections: [
         { slug: 'products', getPathname: (doc) => `/products/${doc.slug}` },
-        { slug: 'categories', pathnameField: 'url' },
         { slug: 'pages', getPathname: (doc) => `/${doc.slug}` },
       ],
     }),
@@ -67,92 +74,119 @@ export default buildConfig({
 
 That's it. The plugin mounts 9 API endpoints, injects an Analytics sidebar route, and adds an Analytics tab to each configured collection.
 
+Each collection entry needs either `pathnameField` (a field name containing the URL path) or `getPathname` (a function that builds the path from the document). The plugin uses this to query GA4 for that specific page's analytics.
+
+### Ecommerce Template Setup
+
+If you're using the official [Payload Ecommerce Template](https://github.com/payloadcms/payload/tree/main/templates/ecommerce), add the plugin **after** `ecommercePlugin()` in your plugins array (since `ecommercePlugin` creates the `products` collection):
+
+```ts
+// src/plugins/index.ts
+export const plugins: Plugin[] = [
+  seoPlugin({ /* ... */ }),
+  formBuilderPlugin({ /* ... */ }),
+  ecommercePlugin({ /* ... */ }),
+
+  // Add after ecommercePlugin
+  payloadGa4AnalyticsPlugin({
+    propertyId: process.env.GA4_PROPERTY_ID!,
+    getCredentials: async () => ({
+      type: 'keyFilename',
+      path: process.env.GA4_CREDENTIALS_PATH!,
+    }),
+    collections: [
+      { slug: 'products', getPathname: (doc) => `/products/${doc.slug}` },
+      { slug: 'pages', getPathname: (doc) => `/${doc.slug}` },
+      { slug: 'categories', getPathname: (doc) => `/categories/${doc.slug}` },
+    ],
+  }),
+]
+```
+
+The template's `products`, `pages`, and `categories` collections all use Payload's built-in `slugField()`, and Products and Pages already use a tabs layout — auto-injection works with zero additional configuration.
+
 ## Production ecommerce configuration
 
 Full example for a production ecommerce storefront with Redis caching, role-based access, and business event tracking:
 
 ```ts
-import { buildConfig } from 'payload'
-import { payloadGa4AnalyticsPlugin } from 'payload-plugin-ga4-ecommerce'
+payloadGa4AnalyticsPlugin({
+  propertyId: process.env.GA4_PROPERTY_ID!,
 
-export default buildConfig({
-  plugins: [
-    payloadGa4AnalyticsPlugin({
-      propertyId: process.env.GA4_PROPERTY_ID!,
+  getCredentials: async () => {
+    // JSON string from secret manager (recommended for production)
+    if (process.env.GA4_CREDENTIALS_JSON) {
+      return {
+        credentials: JSON.parse(process.env.GA4_CREDENTIALS_JSON),
+        type: 'json',
+      }
+    }
+    // File path fallback (Docker volumes, local dev)
+    return {
+      path: process.env.GA4_CREDENTIALS_PATH!,
+      type: 'keyFilename',
+    }
+  },
 
-      getCredentials: async () => {
-        // JSON string from secret manager (recommended for production)
-        if (process.env.GA4_CREDENTIALS_JSON) {
-          return {
-            credentials: JSON.parse(process.env.GA4_CREDENTIALS_JSON),
-            type: 'json',
-          }
-        }
-        // File path fallback (Docker volumes, local dev)
-        return {
-          path: process.env.GA4_CREDENTIALS_PATH!,
-          type: 'keyFilename',
-        }
-      },
+  // Disable gracefully when credentials aren't available (CI, tests)
+  disabled: !process.env.GA4_PROPERTY_ID,
 
-      // Role-based access — admin and SEO roles only
-      access: ({ user }) =>
-        Boolean(user && user.roles?.some((r: string) => ['admin', 'seo'].includes(r))),
+  // Role-based access — admin and SEO roles only
+  access: ({ user }) =>
+    Boolean(user && user.roles?.some((r: string) => ['admin', 'seo'].includes(r))),
 
-      admin: {
-        mode: 'route',       // sidebar route, not dashboard injection
-        navLabel: 'Analytics',
-        route: '/analytics',
-      },
+  admin: {
+    mode: 'route',       // sidebar route, not dashboard injection
+    navLabel: 'Analytics',
+    route: '/analytics',
+  },
 
-      // Map collections to their public URL paths for per-record analytics
-      collections: [
-        { slug: 'products', getPathname: (doc) => `/products/${doc.slug}` },
-        { slug: 'categories', getPathname: (doc) => `/products/browse/${doc.slug}` },
-        { slug: 'pages', getPathname: (doc) => `/${doc.slug}` },
-        { slug: 'blog', getPathname: (doc) => `/blog/${doc.slug}` },
-      ],
-
-      // Track ecommerce + lead-gen events
-      events: {
-        trackedEventNames: [
-          'purchase',
-          'add_to_cart',
-          'begin_checkout_process',
-          'submit_order',
-          'phone_call',
-          'product_inquiry',
-        ],
-        reportLimit: 10,
-      },
-
-      // Redis cache for multi-node deployment
-      cache: {
-        enabled: true,
-        strategy: 'redis',
-        redis: { url: process.env.REDIS_URL!, keyPrefix: 'ga4' },
-        aggregateTtlMs: 5 * 60_000,    // 5 minutes
-        timeseriesTtlMs: 5 * 60_000,
-        maxEntries: 2_000,
-      },
-
-      // Conservative rate limiting for production
-      rateLimit: {
-        enabled: true,
-        maxConcurrency: 2,              // 2 concurrent GA4 calls per node
-        maxQueueSize: 100,
-        maxRequestsPerMinute: 120,      // per IP per route
-        maxRetries: 3,
-        baseRetryDelayMs: 250,
-        maxRetryDelayMs: 4_000,
-        jitterFactor: 0.2,
-        requestTimeoutMs: 10_000,
-        includePropertyQuota: true,
-      },
-
-      source: { dimension: 'sessionSource' },
-    }),
+  // Map collections to their public URL paths for per-record analytics
+  collections: [
+    { slug: 'products', getPathname: (doc) => `/products/${doc.slug}` },
+    { slug: 'categories', getPathname: (doc) => `/categories/${doc.slug}` },
+    { slug: 'pages', getPathname: (doc) => `/${doc.slug}` },
+    { slug: 'blog', getPathname: (doc) => `/blog/${doc.slug}` },
   ],
+
+  // Track ecommerce + lead-gen events
+  events: {
+    trackedEventNames: [
+      'purchase',
+      'add_to_cart',
+      'begin_checkout_process',
+      'submit_order',
+      'phone_call',
+      'product_inquiry',
+    ],
+    reportLimit: 10,
+  },
+
+  // Redis cache for multi-node deployment
+  cache: {
+    enabled: true,
+    strategy: 'redis',
+    redis: { url: process.env.REDIS_URL!, keyPrefix: 'ga4' },
+    aggregateTtlMs: 5 * 60_000,    // 5 minutes
+    timeseriesTtlMs: 5 * 60_000,
+    maxEntries: 2_000,
+  },
+
+  // Conservative rate limiting for production
+  rateLimit: {
+    enabled: true,
+    maxConcurrency: 2,              // 2 concurrent GA4 calls per node
+    maxQueueSize: 100,
+    maxRequestsPerMinute: 120,      // per IP per route
+    maxRetries: 3,
+    baseRetryDelayMs: 250,
+    maxRetryDelayMs: 4_000,
+    jitterFactor: 0.2,
+    requestTimeoutMs: 10_000,
+    includePropertyQuota: true,
+  },
+
+  source: { dimension: 'sessionSource' },
 })
 ```
 
@@ -276,11 +310,26 @@ curl http://localhost:3000/api/analytics/ga4/live
 
 ### `payloadCollection` (default)
 
-Uses a hidden Payload collection (`ga4-cache-entries`) as cache storage. Shared across all app instances on the same database. LRU eviction via `accessedAt` timestamps with expired entry cleanup every 30 seconds. No additional infrastructure.
+Uses a hidden Payload collection as cache storage. Shared across all app instances on the same database. LRU eviction via `accessedAt` timestamps with expired entry cleanup every 30 seconds. No additional infrastructure.
 
 ### `redis`
 
-Distributed LRU cache using Redis sorted sets. Atomic eviction, race-safe for multi-node duplicate deletes. Requires `cache.redis.url`. Recommended for horizontally scaled deployments.
+Distributed LRU cache using Redis sorted sets. Atomic eviction, race-safe for multi-node duplicate deletes. Requires `cache.redis.url` and the `redis` npm package installed in your project. Recommended for horizontally scaled deployments.
+
+```bash
+pnpm add redis
+```
+
+```ts
+cache: {
+  enabled: true,
+  strategy: 'redis',
+  redis: { url: 'redis://localhost:6379', keyPrefix: 'ga4' },
+  aggregateTtlMs: 5 * 60_000,
+  timeseriesTtlMs: 5 * 60_000,
+  maxEntries: 2_000,
+}
+```
 
 ## Rate limiting
 
@@ -404,11 +453,6 @@ cp dev/.env.example dev/.env
 # Set GA4_PROPERTY_ID and GA4_CREDENTIALS_PATH in dev/.env
 pnpm dev
 ```
-
-Dev admin users:
-
-- `admin@example.com` / `admin`
-- `developer@example.com` / `test`
 
 | Command | Description |
 |---------|-------------|
