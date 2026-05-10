@@ -13,7 +13,14 @@ export const METRIC_KEYS = [
 ] as const
 export type MetricKey = (typeof METRIC_KEYS)[number]
 
-export const PROPERTY_KEYS = ['page', 'country', 'source', 'device', 'event'] as const
+export const PROPERTY_KEYS = [
+  'page',
+  'country',
+  'source',
+  'device',
+  'event',
+  'landingPage',
+] as const
 export type ReportPropertyKey = (typeof PROPERTY_KEYS)[number]
 
 export type AdminMode = 'both' | 'dashboard' | 'headless' | 'route'
@@ -187,6 +194,20 @@ export type MetricDelta = {
   percentChange: null | number
 }
 
+export type PropertyQuotaStatus = {
+  consumed?: number
+  remaining?: number
+}
+
+export type PropertyQuota = {
+  concurrentRequests?: PropertyQuotaStatus
+  potentiallyThresholdedRequestsPerHour?: PropertyQuotaStatus
+  serverErrorsPerProjectPerHour?: PropertyQuotaStatus
+  tokensPerDay?: PropertyQuotaStatus
+  tokensPerHour?: PropertyQuotaStatus
+  tokensPerProjectPerHour?: PropertyQuotaStatus
+}
+
 export type AggregateComparison = {
   deltas: Partial<Record<MetricKey, MetricDelta>>
   previousMetrics: Partial<Record<MetricKey, number>>
@@ -197,6 +218,7 @@ export type AggregateResult = {
   comparison?: AggregateComparison
   metrics: Partial<Record<MetricKey, number>>
   pagePath?: string
+  propertyQuota?: PropertyQuota
   range: DateRange
   timeframe: Timeframe
 }
@@ -209,6 +231,7 @@ export type TimeseriesResult = {
   metrics: MetricKey[]
   pagePath?: string
   points: TimeseriesPoint[]
+  propertyQuota?: PropertyQuota
   range: DateRange
   timeframe: Timeframe
 }
@@ -224,6 +247,7 @@ export type ReportResult = {
   metrics: MetricKey[]
   pagePath?: string
   property: ReportPropertyKey
+  propertyQuota?: PropertyQuota
   range: DateRange
   rows: ReportRow[]
   timeframe: Timeframe
@@ -255,7 +279,16 @@ export type CompatibilityResult = {
 }
 
 export type LiveResult = {
+  propertyQuota?: PropertyQuota
   visitors: number
+}
+
+export type CacheClearResult = {
+  cache: {
+    enabled: boolean
+    strategy: CacheStrategy
+  }
+  status: 'cleared' | 'disabled'
 }
 
 export type GlobalAggregateInput = {

@@ -7,6 +7,20 @@ export class RateLimitQueueOverflowError extends Error {
   }
 }
 
+export class RateLimiterDestroyedError extends Error {
+  readonly status = 503
+
+  constructor() {
+    super('Analytics request limiter has been destroyed')
+    this.name = 'RateLimiterDestroyedError'
+  }
+}
+
+type QueueEntry = {
+  reject: (error: Error) => void
+  resolve: () => void
+}
+
 /**
  * In-memory concurrency limiter for outbound GA4 API requests.
  *
@@ -17,9 +31,10 @@ export class RateLimitQueueOverflowError extends Error {
  */
 export class RateLimiterService {
   private active = 0
+  private destroyed = false
   private readonly maxConcurrency: number
   private readonly maxQueueSize: number
-  private readonly queue: Array<() => void> = []
+  private readonly queue: QueueEntry[] = []
 
   constructor(maxConcurrency: number, maxQueueSize = 100) {
     this.maxConcurrency = Math.max(1, maxConcurrency)
@@ -27,6 +42,10 @@ export class RateLimiterService {
   }
 
   private acquire(): Promise<void> {
+    if (this.destroyed) {
+      throw new RateLimiterDestroyedError()
+    }
+
     if (this.active < this.maxConcurrency) {
       this.active += 1
       return Promise.resolve()
@@ -36,10 +55,18 @@ export class RateLimiterService {
       throw new RateLimitQueueOverflowError()
     }
 
-    return new Promise((resolve) => {
-      this.queue.push(() => {
-        this.active += 1
-        resolve()
+    return new Promise((resolve, reject) => {
+      this.queue.push({
+        reject,
+        resolve: () => {
+          if (this.destroyed) {
+            reject(new RateLimiterDestroyedError())
+            return
+          }
+
+          this.active += 1
+          resolve()
+        },
       })
     })
   }
@@ -47,15 +74,21 @@ export class RateLimiterService {
   private release(): void {
     this.active = Math.max(0, this.active - 1)
 
+    if (this.destroyed) {
+      return
+    }
+
     const next = this.queue.shift()
     if (next) {
-      next()
+      next.resolve()
     }
   }
 
   destroy(): void {
+    this.destroyed = true
+    const error = new RateLimiterDestroyedError()
     while (this.queue.length > 0) {
-      this.queue.shift()
+      this.queue.shift()?.reject(error)
     }
     this.active = 0
   }

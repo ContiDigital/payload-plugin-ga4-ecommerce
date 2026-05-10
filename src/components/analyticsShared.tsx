@@ -22,7 +22,7 @@ export const formatInteger = (value: number | undefined): string =>
   typeof value === 'number' ? Math.round(value).toLocaleString() : '0'
 
 export const formatPercent = (value: number | undefined): string =>
-  typeof value === 'number' ? `${value.toFixed(2)}%` : '0.00%'
+  typeof value === 'number' ? `${(value * 100).toFixed(2)}%` : '0.00%'
 
 export const formatSeconds = (value: number | undefined): string => {
   const total = typeof value === 'number' ? Math.round(value) : 0
@@ -44,7 +44,9 @@ export const formatDelta = (metric: MetricKey, delta: MetricDelta | undefined): 
   const absoluteValue =
     metric === 'sessionDuration'
       ? formatSeconds(Math.abs(delta.absolute))
-      : Math.abs(Math.round(delta.absolute)).toLocaleString()
+      : metric === 'bounceRate'
+        ? `${(Math.abs(delta.absolute) * 100).toFixed(1)} pts`
+        : Math.abs(Math.round(delta.absolute)).toLocaleString()
   const percentValue =
     delta.percentChange === null
       ? 'n/a'
@@ -90,7 +92,11 @@ export const MetricCard: React.FC<MetricCardProps> = ({ delta, label, value }) =
       <p style={{ color: 'var(--theme-elevation-600)', fontSize: '0.8rem', margin: 0 }}>{label}</p>
       <p style={{ fontSize: '1.1rem', fontWeight: 600, margin: '0.25rem 0 0' }}>{value}</p>
       {delta ? (
-        <p style={{ color: 'var(--theme-elevation-600)', fontSize: '0.75rem', margin: '0.3rem 0 0' }}>{delta}</p>
+        <p
+          style={{ color: 'var(--theme-elevation-600)', fontSize: '0.75rem', margin: '0.3rem 0 0' }}
+        >
+          {delta}
+        </p>
       ) : null}
     </article>
   )

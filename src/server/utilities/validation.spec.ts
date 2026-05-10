@@ -53,6 +53,14 @@ describe('analytics input validation', () => {
     expect(input.property).toBe('source')
   })
 
+  it('accepts landingPage as a report property', () => {
+    const input = parseReportInput({
+      property: 'landingPage',
+    })
+
+    expect(input.property).toBe('landingPage')
+  })
+
   it('preserves explicit empty eventNames array for event fallback queries', () => {
     const input = parseReportInput({
       eventNames: [],

@@ -2,6 +2,7 @@ import type { PayloadRequest } from 'payload'
 
 import type {
   AggregateResult,
+  CacheClearResult,
   CompatibilityInput,
   CompatibilityResult,
   GlobalAggregateInput,
@@ -13,6 +14,8 @@ import type {
   NormalizedPluginOptions,
   PageAggregateInput,
   PageTimeseriesInput,
+  PropertyQuota,
+  PropertyQuotaStatus,
   ReportInput,
   ReportResult,
   TimeseriesPoint,
@@ -21,7 +24,11 @@ import type {
 import type { CacheService } from './sub-services/cacheService.js'
 import type { GA4Reporter } from './sub-services/ga4ReporterService.js'
 
-import { parseGA4DateDimension, resolveDateRange, shiftDateRangeBack } from '../utilities/dateRange.js'
+import {
+  parseGA4DateDimension,
+  resolveDateRange,
+  shiftDateRangeBack,
+} from '../utilities/dateRange.js'
 import {
   DEFAULT_GLOBAL_AGGREGATE_METRICS,
   DEFAULT_GLOBAL_TIMESERIES_METRICS,
@@ -94,10 +101,11 @@ export const toMetricDeltaMap = (args: {
 }
 
 export const buildCacheKey = (...parts: Array<null | number | string | undefined>): string => {
-  return parts
+  const normalizedParts = parts
     .filter((part): part is number | string => part !== undefined && part !== null)
     .map((part) => String(part))
-    .join('|')
+
+  return JSON.stringify(normalizedParts)
 }
 
 export const parseMetrics = (
@@ -118,6 +126,67 @@ export const formatCompatibility = (value: null | number | string | undefined): 
   }
 
   return 'UNKNOWN'
+}
+
+type GA4QuotaStatusLike = {
+  consumed?: null | number
+  remaining?: null | number
+}
+
+type GA4PropertyQuotaLike = {
+  concurrentRequests?: GA4QuotaStatusLike | null
+  potentiallyThresholdedRequestsPerHour?: GA4QuotaStatusLike | null
+  serverErrorsPerProjectPerHour?: GA4QuotaStatusLike | null
+  tokensPerDay?: GA4QuotaStatusLike | null
+  tokensPerHour?: GA4QuotaStatusLike | null
+  tokensPerProjectPerHour?: GA4QuotaStatusLike | null
+}
+
+const toQuotaStatus = (
+  value: GA4QuotaStatusLike | null | undefined,
+): PropertyQuotaStatus | undefined => {
+  if (!value) {
+    return undefined
+  }
+
+  const status: PropertyQuotaStatus = {}
+
+  if (typeof value.consumed === 'number' && Number.isFinite(value.consumed)) {
+    status.consumed = value.consumed
+  }
+
+  if (typeof value.remaining === 'number' && Number.isFinite(value.remaining)) {
+    status.remaining = value.remaining
+  }
+
+  return Object.keys(status).length > 0 ? status : undefined
+}
+
+export const toPropertyQuota = (
+  value: GA4PropertyQuotaLike | null | undefined,
+): PropertyQuota | undefined => {
+  if (!value) {
+    return undefined
+  }
+
+  const quota: PropertyQuota = {
+    concurrentRequests: toQuotaStatus(value.concurrentRequests),
+    potentiallyThresholdedRequestsPerHour: toQuotaStatus(
+      value.potentiallyThresholdedRequestsPerHour,
+    ),
+    serverErrorsPerProjectPerHour: toQuotaStatus(value.serverErrorsPerProjectPerHour),
+    tokensPerDay: toQuotaStatus(value.tokensPerDay),
+    tokensPerHour: toQuotaStatus(value.tokensPerHour),
+    tokensPerProjectPerHour: toQuotaStatus(value.tokensPerProjectPerHour),
+  }
+
+  const definedEntries = Object.entries(quota).filter(
+    (entry): entry is [keyof PropertyQuota, PropertyQuotaStatus] => Boolean(entry[1]),
+  )
+
+  return definedEntries.length > 0
+    ? (Object.fromEntries(definedEntries) as PropertyQuota)
+    : undefined
 }
 
 export const buildPagePathFilter = (pagePath?: string) => {
@@ -178,7 +247,12 @@ export const toClientValidationError = (message: string) => {
 }
 
 export const extractErrorDetails = (error: unknown): string => {
-  if (typeof error === 'object' && error !== null && 'details' in error && typeof error.details === 'string') {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'details' in error &&
+    typeof error.details === 'string'
+  ) {
     return error.details
   }
 
@@ -198,8 +272,12 @@ export type AnalyticsService = {
     input: CompatibilityInput
     req: PayloadRequest
   }) => Promise<CompatibilityResult>
+  clearCache: (args: { req: PayloadRequest }) => Promise<CacheClearResult>
   destroy: () => Promise<void>
-  getGlobalAggregate: (args: { input: GlobalAggregateInput; req: PayloadRequest }) => Promise<AggregateResult>
+  getGlobalAggregate: (args: {
+    input: GlobalAggregateInput
+    req: PayloadRequest
+  }) => Promise<AggregateResult>
   getGlobalTimeseries: (args: {
     input: GlobalTimeseriesInput
     req: PayloadRequest
@@ -207,7 +285,10 @@ export type AnalyticsService = {
   getHealth: () => HealthResult
   getLiveVisitors: (args: { req: PayloadRequest }) => Promise<LiveResult>
   getMetadata: (args: { req: PayloadRequest }) => Promise<MetadataResult>
-  getPageAggregate: (args: { input: PageAggregateInput; req: PayloadRequest }) => Promise<AggregateResult>
+  getPageAggregate: (args: {
+    input: PageAggregateInput
+    req: PayloadRequest
+  }) => Promise<AggregateResult>
   getPageTimeseries: (args: {
     input: PageTimeseriesInput
     req: PayloadRequest
@@ -225,22 +306,36 @@ type AnalyticsServiceDependencies = {
   retryService?: Pick<RetryService, 'execute'>
 }
 
+const noopCacheService: CacheService = {
+  clear: () => Promise.resolve(),
+  get: () => Promise.resolve(undefined),
+  set: () => Promise.resolve(),
+}
+
+const createDefaultCacheService = (options: NormalizedPluginOptions): CacheService => {
+  if (!options.cache.enabled) {
+    return noopCacheService
+  }
+
+  if (options.cache.strategy === 'redis') {
+    return new RedisCacheService({
+      keyPrefix: options.cache.redis!.keyPrefix!,
+      maxEntries: options.cache.maxEntries,
+      url: options.cache.redis!.url,
+    })
+  }
+
+  return new PayloadCollectionCacheService({
+    collectionSlug: options.cache.collectionSlug,
+    maxEntries: options.cache.maxEntries,
+  })
+}
+
 export const createAnalyticsService = (
   options: NormalizedPluginOptions,
   dependencies: AnalyticsServiceDependencies = {},
 ): AnalyticsService => {
-  const cacheService: CacheService =
-    dependencies.cacheService ??
-    (options.cache.strategy === 'redis'
-      ? new RedisCacheService({
-          keyPrefix: options.cache.redis!.keyPrefix!,
-          maxEntries: options.cache.maxEntries,
-          url: options.cache.redis!.url,
-        })
-      : new PayloadCollectionCacheService({
-          collectionSlug: options.cache.collectionSlug,
-          maxEntries: options.cache.maxEntries,
-        }))
+  const cacheService: CacheService = dependencies.cacheService ?? createDefaultCacheService(options)
 
   const reporterService = dependencies.reporterService ?? new GA4ReporterService(options)
 
@@ -429,7 +524,10 @@ export const createAnalyticsService = (
             req: args.req,
           })
 
-          ;[currentResponse, previousResponse] = await Promise.all([currentPromise, previousPromise])
+          ;[currentResponse, previousResponse] = await Promise.all([
+            currentPromise,
+            previousPromise,
+          ])
         } else {
           currentResponse = await currentPromise
         }
@@ -438,7 +536,10 @@ export const createAnalyticsService = (
 
         let comparison: AggregateResult['comparison'] = undefined
         if (previousResponse && previousRange) {
-          const previousMetrics = toMetricValueMap(metrics, previousResponse.rows?.[0]?.metricValues)
+          const previousMetrics = toMetricValueMap(
+            metrics,
+            previousResponse.rows?.[0]?.metricValues,
+          )
           comparison = {
             deltas: toMetricDeltaMap({
               currentMetrics,
@@ -454,6 +555,7 @@ export const createAnalyticsService = (
           comparison,
           metrics: currentMetrics,
           pagePath: args.pagePath,
+          propertyQuota: toPropertyQuota(currentResponse.propertyQuota),
           range,
           timeframe,
         }
@@ -536,6 +638,7 @@ export const createAnalyticsService = (
           metrics,
           pagePath: args.pagePath,
           points,
+          propertyQuota: toPropertyQuota(response.propertyQuota),
           range,
           timeframe,
         }
@@ -723,6 +826,7 @@ export const createAnalyticsService = (
           metrics,
           pagePath: input.pagePath,
           property,
+          propertyQuota: toPropertyQuota(response.propertyQuota),
           range,
           rows,
           timeframe,
@@ -840,6 +944,7 @@ export const createAnalyticsService = (
       operation: () =>
         reporter.runRealtimeReport({
           metrics: [{ name: 'activeUsers' }],
+          returnPropertyQuota: options.rateLimit.includePropertyQuota,
         }),
       operationName: 'liveVisitors',
       req,
@@ -848,7 +953,31 @@ export const createAnalyticsService = (
     const visitors = parseMetricNumber(response.rows?.[0]?.metricValues?.[0]?.value)
 
     return {
+      propertyQuota: toPropertyQuota(response.propertyQuota),
       visitors,
+    }
+  }
+
+  const clearCache: AnalyticsService['clearCache'] = async ({ req }) => {
+    if (!options.cache.enabled) {
+      return {
+        cache: {
+          enabled: false,
+          strategy: options.cache.strategy,
+        },
+        status: 'disabled',
+      }
+    }
+
+    await cacheService.clear?.({ req })
+    inflightByCacheKey.clear()
+
+    return {
+      cache: {
+        enabled: true,
+        strategy: options.cache.strategy,
+      },
+      status: 'cleared',
     }
   }
 
@@ -895,6 +1024,7 @@ export const createAnalyticsService = (
 
   return {
     checkCompatibility,
+    clearCache,
     destroy,
     getGlobalAggregate,
     getGlobalTimeseries,

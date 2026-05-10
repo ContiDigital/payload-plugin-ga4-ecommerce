@@ -2,6 +2,7 @@ import type { Config } from 'payload'
 
 import type { NormalizedPluginOptions } from '../types/index.js'
 
+import { createCacheClearEndpoint } from '../server/endpoints/cacheClearEndpoint.js'
 import { createCompatibilityEndpoint } from '../server/endpoints/compatibilityEndpoint.js'
 import { createGlobalAggregateEndpoint } from '../server/endpoints/globalAggregateEndpoint.js'
 import { createGlobalTimeseriesEndpoint } from '../server/endpoints/globalTimeseriesEndpoint.js'
@@ -68,6 +69,7 @@ export const applyEndpointEnhancements = (
     createMetadataEndpoint(options, analyticsService),
     createCompatibilityEndpoint(options, analyticsService),
     createLiveEndpoint(options, analyticsService),
+    createCacheClearEndpoint(options, analyticsService),
   ]
 
   return {

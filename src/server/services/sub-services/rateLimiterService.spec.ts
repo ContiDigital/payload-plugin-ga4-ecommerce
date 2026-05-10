@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { RateLimiterService, RateLimitQueueOverflowError } from './rateLimiterService.js'
+import {
+  RateLimiterDestroyedError,
+  RateLimiterService,
+  RateLimitQueueOverflowError,
+} from './rateLimiterService.js'
 
 describe('RateLimiterService', () => {
   it('throws when queue capacity is exceeded', async () => {
@@ -74,5 +78,29 @@ describe('RateLimiterService', () => {
     // Verify the slot was released by running another operation successfully
     const successOperation = () => Promise.resolve('success')
     await expect(service.run(successOperation)).resolves.toBe('success')
+  })
+
+  it('rejects queued operations when destroyed', async () => {
+    const service = new RateLimiterService(1, 10)
+    let resolveActive!: () => void
+
+    const active = service.run(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveActive = resolve
+        }),
+    )
+    const queued = service.run(() => Promise.resolve('queued'))
+
+    await new Promise((r) => setTimeout(r, 0))
+
+    service.destroy()
+    resolveActive()
+
+    await expect(queued).rejects.toBeInstanceOf(RateLimiterDestroyedError)
+    await expect(active).resolves.toBeUndefined()
+    await expect(service.run(() => Promise.resolve('after-destroy'))).rejects.toBeInstanceOf(
+      RateLimiterDestroyedError,
+    )
   })
 })

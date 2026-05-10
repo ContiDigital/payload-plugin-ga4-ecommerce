@@ -1,9 +1,6 @@
 import type { Config, Field, TabsField } from 'payload'
 
-import type {
-  AnalyticsUIPlacementConfig,
-  NormalizedPluginOptions,
-} from '../types/index.js'
+import type { AnalyticsUIPlacementConfig, NormalizedPluginOptions } from '../types/index.js'
 
 import { PLUGIN_MODULE_ID } from '../constants.js'
 import { createCacheCollection } from './cacheCollection.js'
@@ -50,9 +47,7 @@ const normalizeBasePath = (value: string): string => {
   return value
 }
 
-const createAnalyticsField = (
-  args: AnalyticsUIPlacementConfig,
-): Field => {
+const createAnalyticsField = (args: AnalyticsUIPlacementConfig): Field => {
   const apiRoute = normalizeRoutePrefix(args.apiRoute ?? '/api')
   const apiBasePath = normalizeBasePath(args.apiBasePath ?? '/analytics/ga4')
 
@@ -188,7 +183,10 @@ const hasAnalyticsField = (tabsField: TabsField): boolean => {
   return tabsField.tabs.some((tab) =>
     tab.fields.some(
       (field) =>
-        typeof field === 'object' && field !== null && 'name' in field && field.name === ANALYTICS_FIELD_NAME,
+        typeof field === 'object' &&
+        field !== null &&
+        'name' in field &&
+        field.name === ANALYTICS_FIELD_NAME,
     ),
   )
 }
@@ -228,7 +226,11 @@ const injectAnalyticsField = (
   }
 
   const hasRootAnalyticsField = collectionFields.some(
-    (field) => typeof field === 'object' && field !== null && 'name' in field && field.name === ANALYTICS_FIELD_NAME,
+    (field) =>
+      typeof field === 'object' &&
+      field !== null &&
+      'name' in field &&
+      field.name === ANALYTICS_FIELD_NAME,
   )
 
   if (hasRootAnalyticsField) {
@@ -246,9 +248,8 @@ const injectAnalyticsField = (
  * Use this when `autoInjectUI` is false and you want to control where the
  * analytics panel appears in your collection layout.
  */
-export const getAnalyticsField = (
-  config: AnalyticsUIPlacementConfig,
-): Field => createAnalyticsField(config)
+export const getAnalyticsField = (config: AnalyticsUIPlacementConfig): Field =>
+  createAnalyticsField(config)
 
 /**
  * Creates an analytics tab for manual placement in a TabsField.
@@ -308,6 +309,7 @@ export const applyCollectionEnhancements = (
         })
 
   if (
+    options.cache.enabled &&
     options.cache.strategy === 'payloadCollection' &&
     !enhancedCollections.some((collection) => collection.slug === options.cache.collectionSlug)
   ) {

@@ -16,6 +16,8 @@ const mockClient = {
   disconnect: vi.fn().mockResolvedValue(undefined),
   get: vi.fn().mockResolvedValue(null),
   multi: vi.fn().mockReturnValue(mockMulti),
+  scanIterator: vi.fn(),
+  unlink: vi.fn().mockResolvedValue(1),
   zAdd: vi.fn().mockResolvedValue(1),
   zCard: vi.fn().mockResolvedValue(0),
   zRange: vi.fn().mockResolvedValue([]),
@@ -39,6 +41,10 @@ describe('RedisCacheService', () => {
     mockMulti.set.mockReturnValue(mockMulti)
     mockMulti.zAdd.mockReturnValue(mockMulti)
     mockMulti.zRem.mockReturnValue(mockMulti)
+    mockClient.scanIterator.mockImplementation(async function* scanIterator() {
+      await Promise.resolve()
+      yield []
+    })
   })
 
   it('retries connection after initial failure', async () => {
@@ -133,5 +139,50 @@ describe('RedisCacheService', () => {
     expect(result).toBeUndefined()
     // Should clean up the index entry for the miss
     expect(mockClient.zRem).toHaveBeenCalledWith('test:__index__', ['test:missing'])
+  })
+
+  it('clears keys by prefix with scan and unlink', async () => {
+    mockClient.connect.mockResolvedValue(undefined)
+    mockClient.scanIterator.mockImplementation(async function* scanIterator() {
+      await Promise.resolve()
+      yield ['test:a', 'test:b']
+      yield 'test:__index__'
+    })
+
+    const service = new RedisCacheService({
+      keyPrefix: 'test',
+      maxEntries: 100,
+      url: 'redis://localhost:6379',
+    })
+
+    await service.clear()
+
+    expect(mockClient.scanIterator).toHaveBeenCalledWith({
+      COUNT: 100,
+      MATCH: 'test:*',
+    })
+    expect(mockClient.unlink).toHaveBeenCalledWith(['test:a', 'test:b', 'test:__index__'])
+  })
+
+  it('falls back to indexed keys when scanIterator is unavailable', async () => {
+    mockClient.connect.mockResolvedValue(undefined)
+    mockClient.zRange.mockResolvedValueOnce(['test:cached'])
+    const scanIterator = mockClient.scanIterator
+    ;(mockClient as { scanIterator?: unknown }).scanIterator = undefined
+
+    try {
+      const service = new RedisCacheService({
+        keyPrefix: 'test',
+        maxEntries: 100,
+        url: 'redis://localhost:6379',
+      })
+
+      await service.clear()
+
+      expect(mockClient.zRange).toHaveBeenCalledWith('test:__index__', 0, -1)
+      expect(mockClient.unlink).toHaveBeenCalledWith(['test:cached', 'test:__index__'])
+    } finally {
+      ;(mockClient as { scanIterator?: unknown }).scanIterator = scanIterator
+    }
   })
 })

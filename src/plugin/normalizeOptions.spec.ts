@@ -111,6 +111,20 @@ describe('normalizePluginOptions', () => {
     expect(normalized.cache.redis).toBeUndefined()
   })
 
+  test('cache disabled path does not require redis url', () => {
+    const normalized = normalizePluginOptions({
+      ...base,
+      cache: {
+        enabled: false,
+        strategy: 'redis',
+      },
+    })
+
+    expect(normalized.cache.enabled).toBe(false)
+    expect(normalized.cache.strategy).toBe('redis')
+    expect(normalized.cache.redis).toBeUndefined()
+  })
+
   test('trims whitespace from propertyId', () => {
     const normalized = normalizePluginOptions({
       ...base,

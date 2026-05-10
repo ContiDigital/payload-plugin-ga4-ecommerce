@@ -105,6 +105,19 @@ export class PayloadCollectionCacheService implements CacheService {
     await this.enforceMaxEntries(req)
   }
 
+  async clear({ req }: { req: PayloadRequest }): Promise<void> {
+    await req.payload.delete({
+      collection: this.collectionSlug,
+      overrideAccess: true,
+      req,
+      where: {
+        key: {
+          exists: true,
+        },
+      },
+    })
+  }
+
   async get<T>({ key, req }: { key: string; req: PayloadRequest }): Promise<T | undefined> {
     const entry = await this.findByKey(req, key)
     if (!entry) {
@@ -123,13 +136,15 @@ export class PayloadCollectionCacheService implements CacheService {
     }
 
     // Touch accessedAt for LRU ordering
-    void req.payload.update({
-      id: entry.id,
-      collection: this.collectionSlug,
-      data: { accessedAt: new Date().toISOString() },
-      overrideAccess: true,
-      req,
-    }).catch(() => {})
+    void req.payload
+      .update({
+        id: entry.id,
+        collection: this.collectionSlug,
+        data: { accessedAt: new Date().toISOString() },
+        overrideAccess: true,
+        req,
+      })
+      .catch(() => {})
 
     return entry.value as T
   }
@@ -161,17 +176,37 @@ export class PayloadCollectionCacheService implements CacheService {
         req,
       })
     } else {
-      await req.payload.create({
-        collection: this.collectionSlug,
-        data: {
-          accessedAt: new Date().toISOString(),
-          expiresAt,
-          key,
-          value,
-        },
-        overrideAccess: true,
-        req,
-      })
+      try {
+        await req.payload.create({
+          collection: this.collectionSlug,
+          data: {
+            accessedAt: new Date().toISOString(),
+            expiresAt,
+            key,
+            value,
+          },
+          overrideAccess: true,
+          req,
+        })
+      } catch (error) {
+        const racedEntry = await this.findByKey(req, key)
+
+        if (!racedEntry) {
+          throw error
+        }
+
+        await req.payload.update({
+          id: racedEntry.id,
+          collection: this.collectionSlug,
+          data: {
+            accessedAt: new Date().toISOString(),
+            expiresAt,
+            value,
+          },
+          overrideAccess: true,
+          req,
+        })
+      }
     }
 
     await this.maybeCleanup(req)

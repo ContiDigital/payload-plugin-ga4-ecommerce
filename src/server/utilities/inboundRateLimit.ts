@@ -29,7 +29,7 @@ const PRUNE_INTERVAL = 100
  * trusted reverse proxy. If the application is directly exposed without a
  * proxy, clients can spoof these headers to bypass rate limits.
  *
- * When no proxy headers are present, returns 'unknown' — all unidentifiable
+ * When no proxy headers are present, returns 'unknown'. All unidentifiable
  * clients share a single per-route rate limit bucket.
  */
 const resolveClientKey = (req: PayloadRequest): string => {

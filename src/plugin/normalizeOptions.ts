@@ -78,7 +78,8 @@ const normalizeAdminMode = (value: string | undefined): AdminMode => {
 
 const validateCollections = (collections: CollectionAnalyticsConfig[]): void => {
   for (const collection of collections) {
-    const hasPathnameField = typeof collection.pathnameField === 'string' && collection.pathnameField.length > 0
+    const hasPathnameField =
+      typeof collection.pathnameField === 'string' && collection.pathnameField.length > 0
     const hasGetPathname = typeof collection.getPathname === 'function'
 
     if (!hasPathnameField && !hasGetPathname) {
@@ -151,7 +152,9 @@ const normalizeRedisCache = (
   }
 
   if (!value || typeof value.url !== 'string' || value.url.trim().length === 0) {
-    throw new Error('Payload GA4 Analytics: cache.redis.url is required when cache.strategy is "redis"')
+    throw new Error(
+      'Payload GA4 Analytics: cache.redis.url is required when cache.strategy is "redis"',
+    )
   }
 
   return {
@@ -194,13 +197,19 @@ const buildNormalizedOptions = (
   },
   autoInjectUI: options.autoInjectUI ?? true,
   cache: {
-    aggregateTtlMs: normalizePositiveInteger(options.cache?.aggregateTtlMs, DEFAULT_AGGREGATE_TTL_MS),
+    aggregateTtlMs: normalizePositiveInteger(
+      options.cache?.aggregateTtlMs,
+      DEFAULT_AGGREGATE_TTL_MS,
+    ),
     collectionSlug: normalizeCacheCollectionSlug(options.cache?.collectionSlug),
     enabled: options.cache?.enabled ?? true,
     maxEntries: normalizeCacheMaxEntries(options.cache?.maxEntries),
     redis: overrides.redis,
     strategy: overrides.normalizedStrategy,
-    timeseriesTtlMs: normalizePositiveInteger(options.cache?.timeseriesTtlMs, DEFAULT_TIMESERIES_TTL_MS),
+    timeseriesTtlMs: normalizePositiveInteger(
+      options.cache?.timeseriesTtlMs,
+      DEFAULT_TIMESERIES_TTL_MS,
+    ),
   },
   collections: options.collections ?? [],
   disabled: overrides.disabled,
@@ -211,16 +220,34 @@ const buildNormalizedOptions = (
   getCredentials: options.getCredentials,
   propertyId: (options.propertyId ?? '').trim(),
   rateLimit: {
-    baseRetryDelayMs: normalizePositiveInteger(options.rateLimit?.baseRetryDelayMs, DEFAULT_BASE_RETRY_DELAY_MS),
+    baseRetryDelayMs: normalizePositiveInteger(
+      options.rateLimit?.baseRetryDelayMs,
+      DEFAULT_BASE_RETRY_DELAY_MS,
+    ),
     enabled: options.rateLimit?.enabled ?? true,
     includePropertyQuota: options.rateLimit?.includePropertyQuota ?? true,
     jitterFactor: normalizeFloat01(options.rateLimit?.jitterFactor, DEFAULT_RETRY_JITTER_FACTOR),
-    maxConcurrency: normalizePositiveInteger(options.rateLimit?.maxConcurrency, DEFAULT_MAX_CONCURRENCY),
-    maxQueueSize: normalizePositiveInteger(options.rateLimit?.maxQueueSize, DEFAULT_MAX_RATE_LIMIT_QUEUE_SIZE),
-    maxRequestsPerMinute: normalizePositiveInteger(options.rateLimit?.maxRequestsPerMinute, DEFAULT_MAX_REQUESTS_PER_MINUTE),
+    maxConcurrency: normalizePositiveInteger(
+      options.rateLimit?.maxConcurrency,
+      DEFAULT_MAX_CONCURRENCY,
+    ),
+    maxQueueSize: normalizePositiveInteger(
+      options.rateLimit?.maxQueueSize,
+      DEFAULT_MAX_RATE_LIMIT_QUEUE_SIZE,
+    ),
+    maxRequestsPerMinute: normalizePositiveInteger(
+      options.rateLimit?.maxRequestsPerMinute,
+      DEFAULT_MAX_REQUESTS_PER_MINUTE,
+    ),
     maxRetries: normalizeNonNegativeNumber(options.rateLimit?.maxRetries, DEFAULT_MAX_RETRIES),
-    maxRetryDelayMs: normalizePositiveInteger(options.rateLimit?.maxRetryDelayMs, DEFAULT_MAX_RETRY_DELAY_MS),
-    requestTimeoutMs: normalizePositiveInteger(options.rateLimit?.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS),
+    maxRetryDelayMs: normalizePositiveInteger(
+      options.rateLimit?.maxRetryDelayMs,
+      DEFAULT_MAX_RETRY_DELAY_MS,
+    ),
+    requestTimeoutMs: normalizePositiveInteger(
+      options.rateLimit?.requestTimeoutMs,
+      DEFAULT_REQUEST_TIMEOUT_MS,
+    ),
   },
   source: {
     dimension: normalizeSourceDimension(options.source?.dimension),
@@ -235,9 +262,10 @@ export const normalizePluginOptions = (
   options: PayloadGA4AnalyticsPluginOptions,
 ): NormalizedPluginOptions => {
   const normalizedStrategy = normalizeCacheStrategy(options.cache?.strategy)
+  const cacheEnabled = options.cache?.enabled ?? true
 
   if (options.disabled) {
-    // Disabled path: skip Redis URL validation — no connection is needed
+    // Disabled path: skip Redis URL validation because no connection is needed.
     return buildNormalizedOptions(options, {
       disabled: true,
       normalizedStrategy,
@@ -260,6 +288,6 @@ export const normalizePluginOptions = (
   return buildNormalizedOptions(options, {
     disabled: false,
     normalizedStrategy,
-    redis: normalizeRedisCache(normalizedStrategy, options.cache?.redis),
+    redis: cacheEnabled ? normalizeRedisCache(normalizedStrategy, options.cache?.redis) : undefined,
   })
 }

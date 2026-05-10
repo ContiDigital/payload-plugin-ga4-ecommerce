@@ -7,6 +7,8 @@ type RedisClientLike = {
   del: (key: string | string[]) => Promise<number>
   get: (key: string) => Promise<null | string>
   multi: () => RedisMultiLike
+  scanIterator?: (options: { COUNT: number; MATCH: string }) => AsyncIterable<string | string[]>
+  unlink?: (key: string | string[]) => Promise<number>
   zAdd: (key: string, members: Array<{ score: number; value: string }>) => Promise<number>
   zCard: (key: string) => Promise<number>
   zRange: (key: string, min: number, max: number) => Promise<string[]>
@@ -47,6 +49,19 @@ export class RedisCacheService implements CacheService {
 
   private buildKey(key: string): string {
     return `${this.keyPrefix}:${key}`
+  }
+
+  private async deleteKeys(client: RedisClientLike, keys: string[]): Promise<void> {
+    if (keys.length === 0) {
+      return
+    }
+
+    if (typeof client.unlink === 'function') {
+      await client.unlink(keys)
+      return
+    }
+
+    await client.del(keys)
   }
 
   private async enforceMaxEntries(client: RedisClientLike): Promise<void> {
@@ -96,6 +111,44 @@ export class RedisCacheService implements CacheService {
     }
 
     return this.clientPromise
+  }
+
+  async clear(): Promise<void> {
+    const client = await this.getClient()
+
+    if (typeof client.scanIterator !== 'function') {
+      const indexedKeys = await client.zRange(this.indexKey, 0, -1)
+      await this.deleteKeys(client, [...indexedKeys, this.indexKey])
+      return
+    }
+
+    let batch: string[] = []
+    const flush = async (): Promise<void> => {
+      if (batch.length === 0) {
+        return
+      }
+
+      const keys = batch
+      batch = []
+      await this.deleteKeys(client, keys)
+    }
+
+    for await (const item of client.scanIterator({
+      COUNT: 100,
+      MATCH: `${this.keyPrefix}:*`,
+    })) {
+      if (Array.isArray(item)) {
+        batch.push(...item)
+      } else {
+        batch.push(item)
+      }
+
+      if (batch.length >= 500) {
+        await flush()
+      }
+    }
+
+    await flush()
   }
 
   async destroy(): Promise<void> {

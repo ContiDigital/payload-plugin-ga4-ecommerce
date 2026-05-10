@@ -43,10 +43,11 @@ const createOptions = (overrides?: Partial<NormalizedPluginOptions>): Normalized
     reportLimit: 10,
     trackedEventNames: [],
   },
-  getCredentials: () => Promise.resolve({
-    type: 'keyFilename',
-    path: './dev/.google-credentials.json',
-  }),
+  getCredentials: () =>
+    Promise.resolve({
+      type: 'keyFilename',
+      path: './dev/.google-credentials.json',
+    }),
   propertyId: '123',
   rateLimit: {
     baseRetryDelayMs: 250,
@@ -81,9 +82,7 @@ const createCollectionConfig = (fields: Field[]): Config =>
   }) as unknown as Config
 
 const findAnalyticsField = (fields: Field[]): Field | undefined =>
-  fields.find(
-    (field) => 'name' in field && field.name === ANALYTICS_FIELD_NAME,
-  )
+  fields.find((field) => 'name' in field && field.name === ANALYTICS_FIELD_NAME)
 
 const assertHydratedField = (field: Field | undefined): void => {
   expect(field).toBeDefined()
@@ -204,9 +203,7 @@ describe('applyCollectionEnhancements', () => {
     const config = createCollectionConfig([
       {
         type: 'tabs',
-        tabs: [
-          { fields: [{ name: 'title', type: 'text' }], label: 'Content' },
-        ],
+        tabs: [{ fields: [{ name: 'title', type: 'text' }], label: 'Content' }],
       },
     ])
 
@@ -243,7 +240,9 @@ describe('applyCollectionEnhancements', () => {
 
     expect(field.type).toBe('ui')
     expect(field.name).toBe(ANALYTICS_FIELD_NAME)
-    expect(field.admin?.components?.Field).toBe('payload-plugin-ga4-ecommerce/rsc#RecordAnalyticsField')
+    expect(field.admin?.components?.Field).toBe(
+      'payload-plugin-ga4-ecommerce/rsc#RecordAnalyticsField',
+    )
     expect(field.custom).toMatchObject({
       ga4: {
         apiBasePath: '/analytics/ga4',
@@ -294,6 +293,27 @@ describe('applyCollectionEnhancements', () => {
           maxEntries: 100,
           redis: { keyPrefix: 'test', url: 'redis://localhost:6379' },
           strategy: 'redis',
+          timeseriesTtlMs: 30_000,
+        },
+      }),
+    )
+
+    const cacheCollection = result.collections?.find((c) => c.slug === 'ga4-cache')
+    expect(cacheCollection).toBeUndefined()
+  })
+
+  test('does not add cache collection when cache is disabled', () => {
+    const config = createCollectionConfig([{ name: 'title', type: 'text' }])
+
+    const result = applyCollectionEnhancements(
+      config,
+      createOptions({
+        cache: {
+          aggregateTtlMs: 30_000,
+          collectionSlug: 'ga4-cache',
+          enabled: false,
+          maxEntries: 100,
+          strategy: 'payloadCollection',
           timeseriesTtlMs: 30_000,
         },
       }),

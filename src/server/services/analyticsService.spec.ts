@@ -71,6 +71,10 @@ const createMemoryCache = (): CacheService => {
   const map = new Map<string, unknown>()
 
   return {
+    clear: () => {
+      map.clear()
+      return Promise.resolve()
+    },
     get: ({ key }) => Promise.resolve(map.get(key) as undefined),
     set: ({ key, value }) => {
       map.set(key, value)
@@ -82,6 +86,12 @@ const createMemoryCache = (): CacheService => {
 describe('analyticsService happy path', () => {
   test('returns aggregate metrics from reporter', async () => {
     const runReport = vi.fn().mockResolvedValue({
+      propertyQuota: {
+        tokensPerDay: {
+          consumed: 5,
+          remaining: 199995,
+        },
+      },
       rows: [
         {
           metricValues: [{ value: '100' }, { value: '50' }],
@@ -113,6 +123,12 @@ describe('analyticsService happy path', () => {
 
     expect(result.metrics.views).toBe(100)
     expect(result.metrics.visitors).toBe(50)
+    expect(result.propertyQuota).toEqual({
+      tokensPerDay: {
+        consumed: 5,
+        remaining: 199995,
+      },
+    })
     expect(runReport).toHaveBeenCalledTimes(1)
   })
 
@@ -210,6 +226,48 @@ describe('analyticsService happy path', () => {
     expect(result.rows[1].metrics.views).toBe(80)
     expect(result.rows[1].metrics.visitors).toBe(60)
     expect(runReport).toHaveBeenCalledTimes(1)
+  })
+
+  test('getReport supports landing page reports', async () => {
+    const runReport = vi.fn().mockResolvedValue({
+      rows: [
+        {
+          dimensionValues: [{ value: '/campaign-entry' }],
+          metricValues: [{ value: '22' }, { value: '18' }],
+        },
+      ],
+    })
+
+    const service = createAnalyticsService(createOptions(), {
+      cacheService: createMemoryCache(),
+      reporterService: {
+        getReporter: () =>
+          Promise.resolve({
+            checkCompatibility: () => Promise.resolve({}),
+            getMetadata: () => Promise.resolve({}),
+            propertyName: 'properties/123',
+            runRealtimeReport: () => Promise.resolve({}),
+            runReport,
+          } as never),
+      },
+    })
+
+    const result = await service.getReport({
+      input: {
+        property: 'landingPage',
+        timeframe: '30d',
+      },
+      req: createRequest(),
+    })
+
+    expect(result.property).toBe('landingPage')
+    expect(result.metrics).toEqual(['sessions', 'visitors'])
+    expect(result.rows[0].dimensionValue).toBe('/campaign-entry')
+    expect(runReport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dimensions: [{ name: 'landingPagePlusQueryString' }],
+      }),
+    )
   })
 
   test('getPageAggregate returns result with pagePath', async () => {
@@ -356,6 +414,65 @@ describe('analyticsService happy path', () => {
     expect(first.metrics.views).toBe(33)
     expect(second.metrics.views).toBe(33)
     expect(runReport).toHaveBeenCalledTimes(1)
+  })
+
+  test('clearCache clears the cache service and returns cache status', async () => {
+    const cacheClear = vi.fn().mockResolvedValue(undefined)
+    const service = createAnalyticsService(createOptions(), {
+      cacheService: {
+        clear: cacheClear,
+        get: () => Promise.resolve(undefined),
+        set: () => Promise.resolve(),
+      },
+      reporterService: {
+        getReporter: () =>
+          Promise.resolve({
+            checkCompatibility: () => Promise.resolve({}),
+            getMetadata: () => Promise.resolve({}),
+            propertyName: 'properties/123',
+            runRealtimeReport: () => Promise.resolve({}),
+            runReport: () => Promise.resolve({}),
+          } as never),
+      },
+    })
+
+    await expect(service.clearCache({ req: createRequest() })).resolves.toEqual({
+      cache: {
+        enabled: true,
+        strategy: 'payloadCollection',
+      },
+      status: 'cleared',
+    })
+    expect(cacheClear).toHaveBeenCalledTimes(1)
+  })
+
+  test('clearCache is inert when cache is disabled', async () => {
+    const cacheClear = vi.fn().mockResolvedValue(undefined)
+    const service = createAnalyticsService(
+      {
+        ...createOptions(),
+        cache: {
+          ...createOptions().cache,
+          enabled: false,
+        },
+      },
+      {
+        cacheService: {
+          clear: cacheClear,
+          get: () => Promise.resolve(undefined),
+          set: () => Promise.resolve(),
+        },
+      },
+    )
+
+    await expect(service.clearCache({ req: createRequest() })).resolves.toEqual({
+      cache: {
+        enabled: false,
+        strategy: 'payloadCollection',
+      },
+      status: 'disabled',
+    })
+    expect(cacheClear).not.toHaveBeenCalled()
   })
 
   test('destroy calls destroy on cache, limiter, and reporter services', async () => {

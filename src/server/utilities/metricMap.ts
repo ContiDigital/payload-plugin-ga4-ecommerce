@@ -15,6 +15,7 @@ const PROPERTY_NAME_BASE_MAP: Record<Exclude<ReportPropertyKey, 'source'>, strin
   country: 'country',
   device: 'deviceCategory',
   event: 'eventName',
+  landingPage: 'landingPagePlusQueryString',
   page: 'pagePath',
 }
 
@@ -53,6 +54,7 @@ const DEFAULT_REPORT_METRICS_BY_PROPERTY: Record<ReportPropertyKey, readonly Met
   country: ['visitors', 'sessions'],
   device: ['visitors', 'sessions'],
   event: ['eventCount', 'visitors'],
+  landingPage: ['sessions', 'visitors'],
   page: ['views'],
   source: ['sessions', 'visitors'],
 }

@@ -51,3 +51,6 @@ yarn-error.log*
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+
+# Local-only media (demo videos served via GitHub attachment URL in README)
+*.mp4

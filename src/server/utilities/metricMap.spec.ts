@@ -16,10 +16,12 @@ describe('metricMap', () => {
     expect(resolvePropertyName('country')).toBe('country')
     expect(resolvePropertyName('device')).toBe('deviceCategory')
     expect(resolvePropertyName('event')).toBe('eventName')
+    expect(resolvePropertyName('landingPage')).toBe('landingPagePlusQueryString')
     expect(resolvePropertyName('page')).toBe('pagePath')
   })
 
   test('keeps default report metric mappings stable', () => {
+    expect(getDefaultReportMetrics('landingPage')).toEqual(['sessions', 'visitors'])
     expect(getDefaultReportMetrics('source')).toEqual(['sessions', 'visitors'])
     expect(getDefaultReportMetrics('event')).toEqual(['eventCount', 'visitors'])
   })

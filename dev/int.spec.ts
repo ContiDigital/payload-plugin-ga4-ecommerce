@@ -80,6 +80,10 @@ describe('payload-plugin-ga4-ecommerce integration', () => {
           method: 'get',
           path: '/analytics/ga4/live',
         }),
+        expect.objectContaining({
+          method: 'post',
+          path: '/analytics/ga4/cache/clear',
+        }),
       ]),
     )
   })
@@ -237,6 +241,51 @@ describe('payload-plugin-ga4-ecommerce integration', () => {
     expect(body.error).toContain('pagePath must be a non-empty string')
   })
 
+  test('cache clear endpoint removes payload collection cache entries', async () => {
+    const endpoint = findEndpoint('/analytics/ga4/cache/clear', 'post')
+
+    await payload.create({
+      collection: 'ga4-cache-entries',
+      data: {
+        accessedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        key: 'integration-clear-test',
+        value: { ok: true },
+      },
+      overrideAccess: true,
+    })
+
+    const request = new Request('http://localhost:3000/api/analytics/ga4/cache/clear', {
+      method: 'POST',
+    })
+
+    const payloadRequest = await createAuthedPayloadRequest(request)
+    const response = await endpoint.handler(payloadRequest)
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      cache: {
+        enabled: true,
+        strategy: 'payloadCollection',
+      },
+      status: 'cleared',
+    })
+
+    const remaining = await payload.find({
+      collection: 'ga4-cache-entries',
+      depth: 0,
+      limit: 1,
+      overrideAccess: true,
+      where: {
+        key: {
+          equals: 'integration-clear-test',
+        },
+      },
+    })
+
+    expect(remaining.totalDocs).toBe(0)
+  })
+
   test('seed creates representative category and product URL data', async () => {
     const categories = await payload.find({
       collection: 'test-categories',
@@ -274,7 +323,9 @@ describe('payload-plugin-ga4-ecommerce integration', () => {
   })
 
   test('injects analytics tab into configured collections', () => {
-    const target = payload.config.collections?.find((collection) => collection.slug === 'test-products')
+    const target = payload.config.collections?.find(
+      (collection) => collection.slug === 'test-products',
+    )
 
     expect(target).toBeDefined()
     expect(target?.fields?.[0]?.type).toBe('tabs')

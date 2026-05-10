@@ -2,11 +2,11 @@
 
 Production-grade Google Analytics 4 reporting for [Payload CMS](https://payloadcms.com) v3.
 
-Originally built as a custom integration for [Fine's Gallery](https://finesgallery.com) — a high-traffic marble and stone ecommerce storefront running Payload CMS in production. Extracted and open-sourced as a standalone plugin for any Payload v3 project that needs real GA4 analytics inside the admin panel.
+Originally built as a custom integration for [Fine's Gallery](https://finesgallery.com), a high-traffic marble and stone ecommerce storefront running Payload CMS in production. Extracted and open-sourced as a standalone plugin for any Payload v3 project that needs real GA4 analytics inside the admin panel.
 
-Ships a full GA4 Data API service layer with admin analytics UI, per-record collection analytics, tiered caching, bounded concurrency, retry with exponential backoff, in-flight request deduplication, and dual-layer rate limiting — all as a single Payload plugin.
+Ships a full GA4 Data API service layer with admin analytics UI, per-record collection analytics, tiered caching, bounded concurrency, retry with exponential backoff, in-flight request deduplication, and dual-layer rate limiting in a single Payload plugin.
 
-Also fully compatible with the official [Payload Ecommerce Template](https://github.com/payloadcms/payload/tree/main/templates/ecommerce) — see [Ecommerce Template Setup](#ecommerce-template-setup) below.
+Also fully compatible with the official [Payload Ecommerce Template](https://github.com/payloadcms/payload/tree/main/templates/ecommerce). See [Ecommerce Template Setup](#ecommerce-template-setup) below.
 
 ## Production Demo
 
@@ -16,23 +16,26 @@ https://github.com/user-attachments/assets/bd7f2496-d319-45f5-b2c0-2e3ff2b4be6c
 
 ## Features
 
-**Analytics dashboard** — dedicated admin route with KPI cards (views, visitors, sessions, bounce rate, engagement time), global timeseries chart, top pages, top traffic sources, top events, and live visitor count.
+**Analytics dashboard**: dedicated admin route with KPI cards (views, visitors, sessions, bounce rate, average session duration), global timeseries chart, top landing pages, top pages, top traffic sources, top events, and live visitor count.
 
-**Record-level analytics** — automatic "Analytics" tab injected into configured collections (products, categories, pages, blog posts, etc.) showing per-URL aggregate metrics, timeseries chart, period-over-period comparison with percentage deltas, and traffic source breakdown for that specific record.
+**Record-level analytics**: automatic "Analytics" tab injected into configured collections (products, categories, pages, blog posts, etc.) showing per-URL aggregate metrics, timeseries chart, period-over-period comparison with percentage deltas, and traffic source breakdown for that specific record.
 
-**Business event tracking** — configure tracked event names (`purchase`, `add_to_cart`, `phone_call`, `begin_checkout_process`, `submit_order`, etc.) and get prioritized event reporting in the dashboard.
+**Business event tracking**: configure tracked event names (`purchase`, `add_to_cart`, `phone_call`, `begin_checkout_process`, `submit_order`, etc.) and get prioritized event reporting in the dashboard.
 
-**Full GA4 Data API coverage** — `runReport`, `runRealtimeReport`, `getMetadata`, `checkCompatibility` — all exposed as typed Payload endpoints with full request validation.
+**Full GA4 Data API coverage**: `runReport`, `runRealtimeReport`, `getMetadata`, and `checkCompatibility`, all exposed as typed Payload endpoints with full request validation.
 
-**Tiered caching** — two strategies:
-- `payloadCollection` — DB-backed cache with LRU eviction (default, zero infrastructure)
-- `redis` — distributed cache for multi-node deployments with race-safe eviction
+**Tiered caching**: two strategies:
 
-**Dual-layer rate limiting** — outbound bounded concurrency queue with in-flight request deduplication to protect GA4 API quotas; inbound per-IP, per-route sliding window to protect your endpoints from abuse.
+- `payloadCollection`: DB-backed cache with LRU eviction (default, zero infrastructure)
+- `redis`: distributed cache for multi-node deployments with race-safe eviction
 
-**Retry with backoff** — exponential backoff + full jitter for transient GA4 failures (HTTP 429/500/502/503/504, gRPC RESOURCE_EXHAUSTED / UNAVAILABLE / DEADLINE_EXCEEDED). Configurable max retries and delay caps.
+Includes admin UI cache-bypass refresh controls, request-level `useCache: false` support, and an admin-gated cache clear endpoint for operational cache invalidation.
 
-**GA4 quota visibility** — optional `includePropertyQuota` returns GA4 PropertyQuota data with responses so you can monitor token consumption.
+**Dual-layer rate limiting**: outbound bounded concurrency queue with in-flight request deduplication to protect GA4 API quotas; inbound per-IP, per-route sliding window to protect your endpoints from abuse.
+
+**Retry with backoff**: exponential backoff + full jitter for transient GA4 failures (HTTP 429/500/502/503/504, gRPC RESOURCE_EXHAUSTED / UNAVAILABLE / DEADLINE_EXCEEDED). Configurable max retries and delay caps.
+
+**GA4 quota visibility**: optional `includePropertyQuota` returns GA4 PropertyQuota data with responses so you can monitor token consumption.
 
 ## Installation
 
@@ -44,10 +47,11 @@ pnpm add payload-plugin-ga4-ecommerce
 
 Optional peer dependencies:
 
-| Package | When required |
-|---------|--------------|
-| `recharts` | Admin analytics UI (charts) |
-| `redis` | `cache.strategy: 'redis'` |
+| Package                                                    | When required                                                      |
+| ---------------------------------------------------------- | ------------------------------------------------------------------ |
+| `@payloadcms/next`, `@payloadcms/ui`, `react`, `react-dom` | Admin analytics UI (usually already present in Payload admin apps) |
+| `recharts`                                                 | Admin analytics UI charts                                          |
+| `redis`                                                    | `cache.strategy: 'redis'`                                          |
 
 ## Quick start
 
@@ -72,7 +76,7 @@ export default buildConfig({
 })
 ```
 
-That's it. The plugin mounts 9 API endpoints, injects an Analytics sidebar route, and adds an Analytics tab to each configured collection.
+That's it. The plugin mounts 10 API endpoints, injects an Analytics sidebar route, and adds an Analytics tab to each configured collection.
 
 Each collection entry needs either `pathnameField` (a field name containing the URL path) or `getPathname` (a function that builds the path from the document). The plugin uses this to query GA4 for that specific page's analytics.
 
@@ -83,9 +87,15 @@ If you're using the official [Payload Ecommerce Template](https://github.com/pay
 ```ts
 // src/plugins/index.ts
 export const plugins: Plugin[] = [
-  seoPlugin({ /* ... */ }),
-  formBuilderPlugin({ /* ... */ }),
-  ecommercePlugin({ /* ... */ }),
+  seoPlugin({
+    /* ... */
+  }),
+  formBuilderPlugin({
+    /* ... */
+  }),
+  ecommercePlugin({
+    /* ... */
+  }),
 
   // Add after ecommercePlugin
   payloadGa4AnalyticsPlugin({
@@ -103,7 +113,7 @@ export const plugins: Plugin[] = [
 ]
 ```
 
-The template's `products`, `pages`, and `categories` collections all use Payload's built-in `slugField()`, and Products and Pages already use a tabs layout — auto-injection works with zero additional configuration.
+The template's `products`, `pages`, and `categories` collections all use Payload's built-in `slugField()`, and Products and Pages already use a tabs layout, so auto-injection works with zero additional configuration.
 
 ## Production ecommerce configuration
 
@@ -131,12 +141,12 @@ payloadGa4AnalyticsPlugin({
   // Disable gracefully when credentials aren't available (CI, tests)
   disabled: !process.env.GA4_PROPERTY_ID,
 
-  // Role-based access — admin and SEO roles only
+  // Role-based access: admin and SEO roles only
   access: ({ user }) =>
     Boolean(user && user.roles?.some((r: string) => ['admin', 'seo'].includes(r))),
 
   admin: {
-    mode: 'route',       // sidebar route, not dashboard injection
+    mode: 'route', // sidebar route, not dashboard injection
     navLabel: 'Analytics',
     route: '/analytics',
   },
@@ -167,7 +177,7 @@ payloadGa4AnalyticsPlugin({
     enabled: true,
     strategy: 'redis',
     redis: { url: process.env.REDIS_URL!, keyPrefix: 'ga4' },
-    aggregateTtlMs: 5 * 60_000,    // 5 minutes
+    aggregateTtlMs: 5 * 60_000, // 5 minutes
     timeseriesTtlMs: 5 * 60_000,
     maxEntries: 2_000,
   },
@@ -175,9 +185,9 @@ payloadGa4AnalyticsPlugin({
   // Conservative rate limiting for production
   rateLimit: {
     enabled: true,
-    maxConcurrency: 2,              // 2 concurrent GA4 calls per node
+    maxConcurrency: 2, // 2 concurrent GA4 calls per node
     maxQueueSize: 100,
-    maxRequestsPerMinute: 120,      // per IP per route
+    maxRequestsPerMinute: 120, // per IP per route
     maxRetries: 3,
     baseRetryDelayMs: 250,
     maxRetryDelayMs: 4_000,
@@ -197,20 +207,20 @@ payloadGa4AnalyticsPlugin({
 3. In [GA4 Admin > Property Access Management](https://analytics.google.com/), grant the service account **Viewer** access.
 4. Note your numeric GA4 property ID (GA4 Admin > Property Settings).
 
-| Environment variable | Required | Description |
-|---------------------|----------|-------------|
-| `GA4_PROPERTY_ID` | Yes | Numeric GA4 property ID |
+| Environment variable   | Required     | Description                            |
+| ---------------------- | ------------ | -------------------------------------- |
+| `GA4_PROPERTY_ID`      | Yes          | Numeric GA4 property ID                |
 | `GA4_CREDENTIALS_JSON` | One of these | Raw JSON string of service account key |
-| `GA4_CREDENTIALS_PATH` | One of these | File path to service account JSON key |
+| `GA4_CREDENTIALS_PATH` | One of these | File path to service account JSON key  |
 
 ## Admin integration modes
 
-| Mode | Behavior |
-|------|----------|
+| Mode              | Behavior                                      |
+| ----------------- | --------------------------------------------- |
 | `route` (default) | Dedicated sidebar route at `/admin/analytics` |
-| `dashboard` | Panel injected into the admin dashboard |
-| `both` | Sidebar route + dashboard panel |
-| `headless` | Endpoints only, no admin UI |
+| `dashboard`       | Panel injected into the admin dashboard       |
+| `both`            | Sidebar route + dashboard panel               |
+| `headless`        | Endpoints only, no admin UI                   |
 
 **`route` is recommended** for production apps with role-based custom dashboards (sales, warehouse, accounting, etc.) since it avoids layout conflicts.
 
@@ -225,28 +235,38 @@ When `collections` is configured, the plugin injects an "Analytics" tab into eac
 
 ### Manual UI placement (optional)
 
-By default (`autoInjectUI: true`), the plugin appends an "Analytics" tab to the **end** of your collection's existing tabs — or appends a root field if no tabs exist. Most projects should use this and skip this section entirely.
+By default (`autoInjectUI: true`), the plugin appends an "Analytics" tab to the **end** of your collection's existing tabs, or appends a root field if no tabs exist. Most projects should use this and skip this section entirely.
 
 If you need the analytics panel in a **specific tab position** (e.g. second tab instead of last) or with a **custom label**, set `autoInjectUI: false` and place `AnalyticsUIPlaceholder` exactly where you want it:
 
 ```ts
-import {
-  AnalyticsUIPlaceholder,
-  payloadGa4AnalyticsPlugin,
-} from 'payload-plugin-ga4-ecommerce'
+import { AnalyticsUIPlaceholder, payloadGa4AnalyticsPlugin } from 'payload-plugin-ga4-ecommerce'
 
 // In plugin config:
-payloadGa4AnalyticsPlugin({ autoInjectUI: false, /* ... */ })
+payloadGa4AnalyticsPlugin({
+  autoInjectUI: false,
+  /* ... */
+})
 
-// In a collection's field layout — analytics as the second tab with a custom label:
+// In a collection's field layout: analytics as the second tab with a custom label:
 fields: [
   {
     type: 'tabs',
     tabs: [
       { label: 'Content', fields: [{ name: 'title', type: 'text' }] },
       { label: 'Insights', fields: [AnalyticsUIPlaceholder] },
-      { label: 'SEO', fields: [/* ... */] },
-      { label: 'Settings', fields: [/* ... */] },
+      {
+        label: 'SEO',
+        fields: [
+          /* ... */
+        ],
+      },
+      {
+        label: 'Settings',
+        fields: [
+          /* ... */
+        ],
+      },
     ],
   },
 ]
@@ -258,19 +278,20 @@ At config build time, the plugin replaces the placeholder with the fully hydrate
 
 ## API endpoints
 
-Base path: `/api/analytics/ga4` (configurable via `api.basePath`).
+Default full Payload API path: `/api/analytics/ga4`. The plugin `api.basePath` option controls the `/analytics/ga4` portion.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/health` | Plugin status and configuration snapshot |
-| `POST` | `/global/aggregate` | Site-wide KPI metrics for a timeframe |
-| `POST` | `/global/timeseries` | Site-wide metrics over time |
-| `POST` | `/page/aggregate` | Per-URL KPI metrics for a timeframe |
-| `POST` | `/page/timeseries` | Per-URL metrics over time |
-| `POST` | `/report` | Property breakdown (page, country, device, source, event) |
-| `GET` | `/metadata` | Available GA4 dimensions and metrics |
-| `POST` | `/compatibility` | Check metric/dimension compatibility |
-| `GET` | `/live` | Real-time active visitor count |
+| Method | Path                 | Description                                                             |
+| ------ | -------------------- | ----------------------------------------------------------------------- |
+| `GET`  | `/health`            | Plugin status and configuration snapshot                                |
+| `POST` | `/global/aggregate`  | Site-wide KPI metrics for a timeframe                                   |
+| `POST` | `/global/timeseries` | Site-wide metrics over time                                             |
+| `POST` | `/page/aggregate`    | Per-URL KPI metrics for a timeframe                                     |
+| `POST` | `/page/timeseries`   | Per-URL metrics over time                                               |
+| `POST` | `/report`            | Property breakdown (page, landing page, country, device, source, event) |
+| `GET`  | `/metadata`          | Available GA4 dimensions and metrics                                    |
+| `POST` | `/compatibility`     | Check metric/dimension compatibility                                    |
+| `GET`  | `/live`              | Real-time active visitor count                                          |
+| `POST` | `/cache/clear`       | Clear the configured analytics cache                                    |
 
 ### Available metrics
 
@@ -282,7 +303,17 @@ Base path: `/api/analytics/ga4` (configurable via `api.basePath`).
 
 ### Available report properties
 
-`page` `country` `device` `source` `event`
+`page` `landingPage` `country` `device` `source` `event`
+
+### Quota data
+
+When `rateLimit.includePropertyQuota` is enabled, GA4 report responses include a `propertyQuota` object with quota status fields such as `tokensPerDay`, `tokensPerHour`, `concurrentRequests`, and `serverErrorsPerProjectPerHour`.
+
+### Cache bypass and clearing
+
+Analytics POST endpoints accept `useCache: false` to bypass reads and writes for a single request. The admin UI exposes this as `Refresh Without Cache`.
+
+`POST /cache/clear` clears the configured analytics cache using the same access control and inbound rate-limit pipeline as the other analytics endpoints. It does not call GA4. The response is a `CacheClearResult` with `status: 'cleared' | 'disabled'`.
 
 ### Example requests
 
@@ -291,6 +322,11 @@ Base path: `/api/analytics/ga4` (configurable via `api.basePath`).
 curl -X POST http://localhost:3000/api/analytics/ga4/global/aggregate \
   -H 'Content-Type: application/json' \
   -d '{"timeframe":"30d","metrics":["views","visitors","sessions","bounceRate"],"comparePrevious":true}'
+
+# Site-wide KPIs bypassing cache for this request
+curl -X POST http://localhost:3000/api/analytics/ga4/global/aggregate \
+  -H 'Content-Type: application/json' \
+  -d '{"timeframe":"30d","useCache":false}'
 
 # Per-product analytics
 curl -X POST http://localhost:3000/api/analytics/ga4/page/aggregate \
@@ -302,15 +338,23 @@ curl -X POST http://localhost:3000/api/analytics/ga4/report \
   -H 'Content-Type: application/json' \
   -d '{"property":"source","pagePath":"/products/marble-fireplace-mantel","timeframe":"30d"}'
 
+# Top landing pages
+curl -X POST http://localhost:3000/api/analytics/ga4/report \
+  -H 'Content-Type: application/json' \
+  -d '{"property":"landingPage","timeframe":"30d"}'
+
 # Live visitors
 curl http://localhost:3000/api/analytics/ga4/live
+
+# Clear the analytics cache
+curl -X POST http://localhost:3000/api/analytics/ga4/cache/clear
 ```
 
 ## Cache strategies
 
 ### `payloadCollection` (default)
 
-Uses a hidden Payload collection as cache storage. Shared across all app instances on the same database. LRU eviction via `accessedAt` timestamps with expired entry cleanup every 30 seconds. No additional infrastructure.
+Uses a hidden Payload collection as cache storage. Shared across all app instances on the same database. LRU eviction via `accessedAt` timestamps with throttled expired-entry cleanup. No additional infrastructure.
 
 ### `redis`
 
@@ -335,7 +379,7 @@ cache: {
 
 ### Outbound (GA4 API protection)
 
-Bounded concurrency queue (`maxConcurrency` default: 4). In-flight request deduplication — identical concurrent queries share one GA4 API call. Retry with exponential backoff + full jitter on transient failures. Queue overflow returns HTTP 429.
+Bounded concurrency queue (`maxConcurrency` default: 4). In-flight request deduplication means identical concurrent queries share one GA4 API call. Retry with exponential backoff + full jitter on transient failures. Queue overflow returns HTTP 429.
 
 ### Inbound (endpoint abuse protection)
 
@@ -373,11 +417,11 @@ type PayloadGA4AnalyticsPluginOptions = {
   propertyId: string
 
   /** Async credential provider (required) */
-  getCredentials: (args: {
-    payload: null | Payload
-    req?: PayloadRequest
-  }) => Promise<
-    | { credentials: { client_email: string; private_key: string; project_id?: string }; type: 'json' }
+  getCredentials: (args: { payload: null | Payload; req?: PayloadRequest }) => Promise<
+    | {
+        credentials: { client_email: string; private_key: string; project_id?: string }
+        type: 'json'
+      }
     | { path: string; type: 'keyFilename' }
   >
 
@@ -386,7 +430,9 @@ type PayloadGA4AnalyticsPluginOptions = {
 
   /** Custom access control (default: admin-only) */
   access?: (args: {
-    payload: Payload; req: PayloadRequest; user: PayloadRequest['user']
+    payload: Payload
+    req: PayloadRequest
+    user: PayloadRequest['user']
   }) => boolean | Promise<boolean>
 
   /** Auto-inject Analytics tab into collections (default: true) */
@@ -400,45 +446,45 @@ type PayloadGA4AnalyticsPluginOptions = {
   }>
 
   admin?: {
-    mode?: 'route' | 'dashboard' | 'both' | 'headless'  // default: 'route'
-    navLabel?: string                                     // default: 'Analytics'
-    route?: `/${string}`                                  // default: '/analytics'
+    mode?: 'route' | 'dashboard' | 'both' | 'headless' // default: 'route'
+    navLabel?: string // default: 'Analytics'
+    route?: `/${string}` // default: '/analytics'
   }
 
   api?: {
-    basePath?: `/${string}`  // default: '/analytics/ga4'
+    basePath?: `/${string}` // default: '/analytics/ga4'
   }
 
   cache?: {
-    enabled?: boolean                            // default: true
-    strategy?: 'payloadCollection' | 'redis'     // default: 'payloadCollection'
-    collectionSlug?: string                      // default: 'ga4-cache-entries'
+    enabled?: boolean // default: true
+    strategy?: 'payloadCollection' | 'redis' // default: 'payloadCollection'
+    collectionSlug?: string // default: 'ga4-cache-entries'
     redis?: { url: string; keyPrefix?: string }
-    aggregateTtlMs?: number                      // default: 300000 (5 min)
-    timeseriesTtlMs?: number                     // default: 300000 (5 min)
-    maxEntries?: number                          // default: 1000
+    aggregateTtlMs?: number // default: 300000 (5 min)
+    timeseriesTtlMs?: number // default: 300000 (5 min)
+    maxEntries?: number // default: 1000
   }
 
   rateLimit?: {
-    enabled?: boolean              // default: true
-    maxConcurrency?: number        // default: 4
-    maxQueueSize?: number          // default: 100
-    maxRequestsPerMinute?: number  // default: 120
-    maxRetries?: number            // default: 3
-    baseRetryDelayMs?: number      // default: 250
-    maxRetryDelayMs?: number       // default: 4000
-    jitterFactor?: number          // default: 0.2
-    requestTimeoutMs?: number      // default: 10000
+    enabled?: boolean // default: true
+    maxConcurrency?: number // default: 4
+    maxQueueSize?: number // default: 100
+    maxRequestsPerMinute?: number // default: 120
+    maxRetries?: number // default: 3
+    baseRetryDelayMs?: number // default: 250
+    maxRetryDelayMs?: number // default: 4000
+    jitterFactor?: number // default: 0.2
+    requestTimeoutMs?: number // default: 10000
     includePropertyQuota?: boolean // default: true
   }
 
   events?: {
-    trackedEventNames?: string[]  // default: []
-    reportLimit?: number          // default: 10
+    trackedEventNames?: string[] // default: []
+    reportLimit?: number // default: 10
   }
 
   source?: {
-    dimension?: 'sessionSource' | 'firstUserSource' | 'source'  // default: 'sessionSource'
+    dimension?: 'sessionSource' | 'firstUserSource' | 'source' // default: 'sessionSource'
   }
 }
 ```
@@ -454,29 +500,29 @@ cp dev/.env.example dev/.env
 pnpm dev
 ```
 
-| Command | Description |
-|---------|-------------|
-| `pnpm dev` | Dev server with Turbopack |
-| `pnpm lint` | ESLint (zero-warning policy) |
-| `pnpm test:int` | Unit + integration tests |
-| `pnpm test:coverage` | Tests with v8 coverage |
-| `pnpm build` | Type declarations + SWC compilation |
-| `pnpm pack:smoke` | Package + install verification |
-| `pnpm release:check` | Full pre-release gate |
+| Command              | Description                         |
+| -------------------- | ----------------------------------- |
+| `pnpm dev`           | Dev server with Turbopack           |
+| `pnpm lint`          | ESLint (zero-warning policy)        |
+| `pnpm test:int`      | Unit + integration tests            |
+| `pnpm test:coverage` | Tests with v8 coverage              |
+| `pnpm build`         | Type declarations + SWC compilation |
+| `pnpm pack:smoke`    | Package + install verification      |
+| `pnpm release:check` | Full pre-release gate               |
 
 ## CI/CD
 
-**CI** (PR + push to main): lint, tests, coverage, build, pack smoke — matrix tested on Node 18 + 20. Optional GA4 live smoke test when secrets are configured.
+**CI** (PR + push to main): lint, tests, coverage, build, pack smoke, matrix tested on Node 18 + 20. Optional GA4 live smoke test when secrets are configured.
 
 **Release** (on `v*.*.*` tags): verifies tag/version alignment and main branch membership, runs full quality gates, publishes to npm with provenance, creates GitHub release.
 
 ### GitHub secrets
 
-| Secret | Required for | Description |
-|--------|-------------|-------------|
-| `GA4_PROPERTY_ID` | CI (optional) | GA4 property for live smoke tests |
+| Secret                 | Required for  | Description                               |
+| ---------------------- | ------------- | ----------------------------------------- |
+| `GA4_PROPERTY_ID`      | CI (optional) | GA4 property for live smoke tests         |
 | `GA4_CREDENTIALS_JSON` | CI (optional) | Service account JSON for live smoke tests |
-| `NPM_TOKEN` | Release | npm publish token |
+| `NPM_TOKEN`            | Release       | npm publish token                         |
 
 ## Contributing
 

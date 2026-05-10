@@ -8,6 +8,7 @@ import {
   parseMetricNumber,
   toMetricDeltaMap,
   toMetricValueMap,
+  toPropertyQuota,
 } from './analyticsService.js'
 
 describe('analyticsService helper functions', () => {
@@ -47,7 +48,11 @@ describe('analyticsService helper functions', () => {
   })
 
   test('buildCacheKey filters nullish values and preserves order', () => {
-    expect(buildCacheKey('report', undefined, 'page', null, 42)).toBe('report|page|42')
+    expect(buildCacheKey('report', undefined, 'page', null, 42)).toBe('["report","page","42"]')
+  })
+
+  test('buildCacheKey avoids delimiter collisions', () => {
+    expect(buildCacheKey('a|b', 'c')).not.toBe(buildCacheKey('a', 'b|c'))
   })
 
   test('combineDimensionFilters merges multiple filters into andGroup', () => {
@@ -57,6 +62,21 @@ describe('analyticsService helper functions', () => {
     expect(combineDimensionFilters([pageFilter, sourceFilter])).toEqual({
       andGroup: {
         expressions: [pageFilter, sourceFilter],
+      },
+    })
+  })
+
+  test('toPropertyQuota strips empty quota fields', () => {
+    expect(
+      toPropertyQuota({
+        concurrentRequests: { consumed: 1, remaining: 9 },
+        tokensPerDay: null,
+        tokensPerHour: { consumed: null, remaining: undefined },
+      }),
+    ).toEqual({
+      concurrentRequests: {
+        consumed: 1,
+        remaining: 9,
       },
     })
   })
